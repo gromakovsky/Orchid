@@ -1,0 +1,13 @@
+# For more information, see: http://docs.haskellstack.org/en/stable/yaml_configuration.html
+
+resolver: lts-5.12
+packages:
+- '.'
+
+# Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
+extra-deps:
+- llvm-general-pure-3.5.1.0
+
+# Override default flag values for local packages and extra-deps
+flags: {}
+
