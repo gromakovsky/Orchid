@@ -1,0 +1,34 @@
+file_input → (NEWLINE | stmt)*
+stmt → simple_stmt | compound_stmt
+
+simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
+small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt
+decl_stmt → NAME NAME '=' expr
+expr_stmt → [NAME '='] expr
+pass_stmt → 'pass'
+flow_stmt → return_stmt
+return_stmt → 'return' [expr]
+
+expr → and_test ('||' and_test)*
+and_test → not_test ('&& not_test)*
+not_test → '!' not_test | comparison
+comparison → arith_expr (comp_op arith_expr)*
+comp_op → '<' | '>' | '==' | '<=' | '>=' | '!='
+arith_expr → term (('+' | '-') term)*
+term → factor (('*', '/', '%') factor)*
+factor → ('+', '-') factor | power
+power → atom_expr ['**' factor]
+atom_expr → atom [trailer]
+atom → '(' expr ')' | NAME | NUMBER | 'True' | 'False'
+trailer → '(' [arglist] ')'
+arglist → argument (',' argument)* [',']
+argument → expr
+
+compound_stmt → if_stmt | while_stmt | funcdef
+if_stmt → 'if' expr ':' suite ['else' ':' suite]
+while_stmt → 'while' expr ':' suite
+funcdef → 'def' NAME parameters ['→' NAME] ':' suite
+parameters → '(' [typedarglist] ')'
+typedarglist → typedarg (',' typedarg)* [',']
+typedarg → NAME ':' NAME
+suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
