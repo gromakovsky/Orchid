@@ -8,7 +8,7 @@ import           Orchid.Types (Identifier, Number)
 
 data Token
     = TokNewline
-    | TokName Identifier
+    | TokName !Identifier
     | TokSemicolon
     | TokAssign
     | TokPass
@@ -30,8 +30,8 @@ data Token
     | TokDoubleStar
     | TokLParen
     | TokRParen
-    | TokNumber Number
-    | TokBool Bool
+    | TokNumber !Number
+    | TokBool !Bool
     | TokComma
     | TokIf
     | TokWhile
