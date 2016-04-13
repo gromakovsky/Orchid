@@ -40,4 +40,4 @@ data Token
     | TokArrow
     | TokIndent
     | TokDedent
-    deriving (Show)
+    deriving (Show, Eq)

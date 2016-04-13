@@ -8,10 +8,14 @@ build-type:            Simple
 cabal-version:         >=1.18
 
 library
-  exposed-modules:     Orchid.Types
-                       Orchid.Token
+  exposed-modules:     Orchid.Lexer
+                     , Orchid.Token
+                     , Orchid.Types
+  other-modules:       Orchid.ParsecToken
   build-depends:       base >= 4.8
                      , mtl
+                     , parsec
+                     , safe
                      , text
                      , transformers
   hs-source-dirs:      src
