@@ -11,6 +11,7 @@ library
   exposed-modules:     Orchid.Types
   build-depends:       base >= 4.8
                      , mtl
+                     , text
                      , transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -31,4 +32,3 @@ executable orchid
                      , RecordWildCards
                      , DeriveDataTypeable
                      , GeneralizedNewtypeDeriving
-
