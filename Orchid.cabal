@@ -9,6 +9,7 @@ cabal-version:         >=1.18
 
 library
   exposed-modules:     Orchid.Types
+                       Orchid.Token
   build-depends:       base >= 4.8
                      , mtl
                      , text
