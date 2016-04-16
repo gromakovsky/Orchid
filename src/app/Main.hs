@@ -1,2 +1,4 @@
+import           Orchid.Parser (parseInputFile)
+
 main :: IO ()
-main = putStrLn "Here be dragons"
+main = print =<< parseInputFile "test.orc"
