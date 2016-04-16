@@ -9,6 +9,7 @@ cabal-version:         >=1.18
 
 library
   exposed-modules:     Orchid.Lexer
+                     , Orchid.Parser
                      , Orchid.Token
                      , Orchid.Types
   other-modules:       Orchid.ParsecToken

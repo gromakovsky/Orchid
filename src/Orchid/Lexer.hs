@@ -1,7 +1,8 @@
 -- | Lexer is capable of parsing input file into tokens.
 
 module Orchid.Lexer
-       ( lexerState
+       ( LexerState
+       , lexerState
        , Lexer
        , newlineL
        , nameL
