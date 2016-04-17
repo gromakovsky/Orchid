@@ -24,11 +24,11 @@ module Orchid.Types
        , Suite (..)
        ) where
 
-import           Data.Int  (Int32)
+import           Data.Int  (Int64)
 import           Data.Text (Text)
 
 type Identifier = Text
-type Number = Int32
+type Number = Int64
 
 -- | Representation of input file passed to compiler.
 -- Input file contains list of statements.

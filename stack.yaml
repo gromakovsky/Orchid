@@ -3,11 +3,18 @@
 resolver: lts-5.12
 packages:
 - '.'
+- location:
+    git: git@github.com:serokell/serokell-core.git
+    commit: 9a822f6320bf5cdbf8056e9115e4361267f0d710
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
+- llvm-general-3.5.1.2
 - llvm-general-pure-3.5.1.0
 
 # Override default flag values for local packages and extra-deps
-flags: {}
+flags:
+  llvm-general:
+    shared-llvm: true
 
+system-ghc: false
