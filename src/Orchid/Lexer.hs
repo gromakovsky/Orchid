@@ -4,6 +4,10 @@ module Orchid.Lexer
        ( LexerState
        , lexerState
        , Lexer
+       , parseToken
+       , tokenizer
+       , tokenizeInputFile
+       , tokenizeInput
        , newlineL
        , nameL
        , semicolonL
@@ -44,10 +48,12 @@ import           Control.Monad        (unless)
 import           Data.List            (elemIndex, genericLength,
                                        genericReplicate)
 import           Data.Text            (Text, pack)
+import qualified Data.Text.IO         as TIO
 import           Safe                 (headDef, headMay)
-import           Text.Parsec          (alphaNum, char, getState, letter, many,
-                                       modifyState, oneOf, parserFail, satisfy,
-                                       skipMany, try, (<|>))
+import           Text.Parsec          (alphaNum, char, choice, getState, letter,
+                                       many, modifyState, oneOf, parserFail,
+                                       satisfy, skipMany, try, (<|>))
+import qualified Text.Parsec          as P
 import           Text.Parsec.Language (emptyDef)
 import           Text.Parsec.Text     (GenParser)
 
@@ -68,6 +74,50 @@ lexerState =
 
 type Parser = GenParser LexerState
 type Lexer = Parser Token
+
+parseToken :: Parser Token
+parseToken =
+    choice $
+    map try [equalL, doubleStarL, leL, geL] ++
+    [ newlineL
+    , nameL
+    , semicolonL
+    , assignL
+    , passL
+    , returnL
+    , orL
+    , andL
+    , notL
+    , ltL
+    , gtL
+    , neL
+    , plusL
+    , minusL
+    , starL
+    , slashL
+    , percentL
+    , lparenL
+    , rparenL
+    , numberL
+    , boolL
+    , commaL
+    , ifL
+    , elseL
+    , whileL
+    , defL
+    , colonL
+    , arrowL
+    , indentL
+    , dedentL]
+
+tokenizer :: Parser [Token]
+tokenizer = many parseToken <* P.eof
+
+tokenizeInputFile :: FilePath -> IO (Either P.ParseError [Token])
+tokenizeInputFile fp = tokenizeInput fp <$> TIO.readFile fp
+
+tokenizeInput :: P.SourceName -> Text -> Either P.ParseError [Token]
+tokenizeInput = P.runParser tokenizer lexerState
 
 lexerGen :: Monad m => Tok.GenTokenParser Text u m
 lexerGen = Tok.makeTokenParser style
