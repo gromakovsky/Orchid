@@ -156,15 +156,18 @@ lexerGen = Tok.makeTokenParser style
 
 oneLineComment :: Parser ()
 oneLineComment = do
-    () <$ try (char '#')
+    () <$ char '#'
     () <$ skipMany (satisfy (/= '\n'))
     () <$ char '\n'
+
+emptyLine :: Parser ()
+emptyLine = many (char ' ') >> (try oneLineComment <|> () <$ char '\n')
 
 newlineL :: Lexer
 newlineL =
     TokNewline <$
     do () <$ char '\n'
-       skipMany oneLineComment
+       skipMany $ try emptyLine
        LexerState {..} <- getState
        newIndent <- genericLength <$> many (char ' ')
        processNewIndent (headDef 0 lsStack) newIndent
