@@ -111,7 +111,7 @@ parseToken =
     , dedentL]
 
 tokenizer :: Parser [Token]
-tokenizer = many parseToken <* P.eof
+tokenizer = P.manyTill parseToken P.eof
 
 tokenizeInputFile :: FilePath -> IO (Either P.ParseError [Token])
 tokenizeInputFile fp = tokenizeInput fp <$> TIO.readFile fp
