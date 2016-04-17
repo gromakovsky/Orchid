@@ -31,6 +31,7 @@ module Orchid.Lexer
        , boolL
        , commaL
        , ifL
+       , elseL
        , whileL
        , defL
        , colonL
@@ -198,6 +199,9 @@ commaL = parseSymbol "," TokComma
 
 ifL :: Lexer
 ifL = parseReserved "if" TokIf
+
+elseL :: Lexer
+elseL = parseReserved "else" TokElse
 
 whileL :: Lexer
 whileL = parseReserved "while" TokWhile

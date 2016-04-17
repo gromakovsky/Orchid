@@ -34,6 +34,7 @@ data Token
     | TokBool { getTokBool :: !Bool}
     | TokComma
     | TokIf
+    | TokElse
     | TokWhile
     | TokDef
     | TokColon
