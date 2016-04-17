@@ -4,7 +4,8 @@ module Orchid.Lexer
        ( LexerState
        , lexerState
        , Lexer
-       , parseToken
+       , anyL
+       , firstToken
        , tokenizer
        , tokenizeInputFile
        , tokenizeInput
@@ -75,8 +76,8 @@ lexerState =
 type Parser = GenParser LexerState
 type Lexer = Parser Token
 
-parseToken :: Parser Token
-parseToken =
+anyL :: Lexer
+anyL =
     choice $
     map try [equalL, doubleStarL, leL, geL] ++
     [ newlineL
@@ -110,8 +111,11 @@ parseToken =
     , indentL
     , dedentL]
 
+firstToken :: P.SourceName -> Text -> Either P.ParseError Token
+firstToken = P.runParser anyL lexerState
+
 tokenizer :: Parser [Token]
-tokenizer = P.manyTill parseToken P.eof
+tokenizer = P.manyTill anyL P.eof
 
 tokenizeInputFile :: FilePath -> IO (Either P.ParseError [Token])
 tokenizeInputFile fp = tokenizeInput fp <$> TIO.readFile fp
