@@ -10,6 +10,21 @@ module Orchid.Lexer
        , assignL
        , passL
        , returnL
+       , orL
+       , andL
+       , notL
+       , gtL
+       , ltL
+       , equalL
+       , leL
+       , geL
+       , neL
+       , plusL
+       , minusL
+       , starL
+       , slashL
+       , percentL
+       , doubleStarL
        , lparenL
        , rparenL
        , numberL
@@ -19,6 +34,7 @@ module Orchid.Lexer
        , whileL
        , defL
        , colonL
+       , arrowL
        , indentL
        , dedentL
        ) where
@@ -60,13 +76,19 @@ lexerGen = Tok.makeTokenParser style
         { Tok.commentLine = "#"
         , Tok.identStart = letter <|> char '_'
         , Tok.identLetter = alphaNum <|> oneOf "_'$"
-        , Tok.opStart = oneOf "|&!<>=+-*/%"
+        , Tok.opStart = oneOf "!<>=+-*/%"
         , Tok.opLetter = Tok.opStart style
-        , Tok.reservedNames = ["pass", "return", "def", "True", "False", "if"]
-        , Tok.reservedOpNames = [ "||"
-                                , "&&"
-                                , "!"
-                                , "<"
+        , Tok.reservedNames = [ "pass"
+                              , "return"
+                              , "def"
+                              , "True"
+                              , "False"
+                              , "if"
+                              , "while"
+                              , "or"
+                              , "and"
+                              , "not"]
+        , Tok.reservedOpNames = [ "<"
                                 , ">"
                                 , "=="
                                 , "<="
@@ -100,25 +122,70 @@ nameL :: Lexer
 nameL = verifyNoExtra >> TokName . pack <$> Tok.identifier lexerGen
 
 semicolonL :: Lexer
-semicolonL = verifyNoExtra >> TokSemicolon <$ Tok.semi lexerGen
+semicolonL = parseSymbol ";" TokSemicolon
 
 assignL :: Lexer
-assignL = verifyNoExtra >> TokAssign <$ Tok.symbol lexerGen "="
+assignL = parseSymbol "=" TokAssign
 
 passL :: Lexer
-passL = verifyNoExtra >> TokPass <$ Tok.symbol lexerGen "pass"
+passL = parseReserved "pass" TokPass
 
 returnL :: Lexer
-returnL = verifyNoExtra >> TokReturn <$ Tok.symbol lexerGen "return"
+returnL = parseReserved "return" TokReturn
+
+orL :: Lexer
+orL = parseReserved "or" TokOr
+
+andL :: Lexer
+andL = parseReserved "and" TokAnd
+
+notL :: Lexer
+notL = parseReserved "not" TokNot
+
+ltL :: Lexer
+ltL = parseOperator "<" TokLT
+
+gtL :: Lexer
+gtL = parseOperator ">" TokGT
+
+equalL :: Lexer
+equalL = parseOperator "==" TokEqual
+
+leL :: Lexer
+leL = parseOperator "<=" TokLE
+
+geL :: Lexer
+geL = parseOperator ">=" TokGE
+
+neL :: Lexer
+neL = parseOperator "!=" TokNE
+
+plusL :: Lexer
+plusL = parseOperator "+" TokPlus
+
+minusL :: Lexer
+minusL = parseOperator "-" TokMinus
+
+starL :: Lexer
+starL = parseOperator "*" TokStar
+
+slashL :: Lexer
+slashL = parseOperator "/" TokSlash
+
+percentL :: Lexer
+percentL = parseOperator "%" TokPercent
+
+doubleStarL :: Lexer
+doubleStarL = parseOperator "**" TokDoubleStar
 
 lparenL :: Lexer
-lparenL = verifyNoExtra >> TokLParen <$ Tok.symbol lexerGen "("
+lparenL = parseSymbol "(" TokLParen
 
 rparenL :: Lexer
-rparenL = verifyNoExtra >> TokRParen <$ Tok.symbol lexerGen ")"
+rparenL = parseSymbol ")" TokRParen
 
 numberL :: Lexer
-numberL = TokNumber . fromIntegral <$> (verifyNoExtra >> Tok.integer lexerGen)
+numberL = verifyNoExtra >> TokNumber . fromIntegral <$> Tok.integer lexerGen
 
 boolL :: Lexer
 boolL =
@@ -127,19 +194,22 @@ boolL =
      TokBool False <$ Tok.reserved lexerGen "False")
 
 commaL :: Lexer
-commaL = TokComma <$ Tok.comma lexerGen
+commaL = parseSymbol "," TokComma
 
 ifL :: Lexer
-ifL = TokIf <$ Tok.reserved lexerGen "if"
+ifL = parseReserved "if" TokIf
 
 whileL :: Lexer
-whileL = TokWhile <$ Tok.reserved lexerGen "while"
+whileL = parseReserved "while" TokWhile
 
 defL :: Lexer
-defL = TokDef <$ Tok.reserved lexerGen "def"
+defL = parseReserved "def" TokDef
 
 colonL :: Lexer
-colonL = TokColon <$ Tok.colon lexerGen
+colonL = parseSymbol ":" TokColon
+
+arrowL :: Lexer
+arrowL = parseSymbol "→" TokArrow <|> parseSymbol "->" TokArrow
 
 indentL :: Lexer
 indentL = readExtraToken TokIndent
@@ -185,3 +255,12 @@ verifyNoExtra :: Parser ()
 verifyNoExtra = do
     extraEmpty <- null . lsExtraTokens <$> getState
     unless extraEmpty $ parserFail "Unexpected indent/dedent"
+
+parseReserved :: String -> Token -> Lexer
+parseReserved s t = verifyNoExtra >> t <$ Tok.reserved lexerGen s
+
+parseOperator :: String -> Token -> Lexer
+parseOperator s t = verifyNoExtra >> t <$ Tok.reservedOp lexerGen s
+
+parseSymbol :: String -> Token -> Lexer
+parseSymbol s t = verifyNoExtra >> t <$ Tok.symbol lexerGen s
