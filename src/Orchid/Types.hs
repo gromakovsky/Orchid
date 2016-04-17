@@ -92,9 +92,9 @@ data ReturnStmt =
 
 -- | Expression is either unary operation applied to expression or
 -- binary operation applied to two expressions or atom expression.
--- expr → and_test ('||' and_test)*
--- and_test → not_test ('&&' not_test)*
--- not_test → '!' not_test | comparison
+-- expr → and_test ('or' and_test)*
+-- and_test → not_test ('and' not_test)*
+-- not_test → 'not' not_test | comparison
 -- comparison → arith_expr (comp_op arith_expr)*
 -- comp_op → '<' | '>' | '==' | '<=' | '>=' | '!='
 -- arith_expr → term (('+' | '-') term)*
