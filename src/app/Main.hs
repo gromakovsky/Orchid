@@ -1,4 +1,8 @@
 import           Orchid.Parser (parseInputFile)
 
+import           Options       (Options (..), getOptions)
+
 main :: IO ()
-main = print =<< parseInputFile "test.orc"
+main = do
+    Options {..} <- getOptions
+    print =<< parseInputFile optInputFile
