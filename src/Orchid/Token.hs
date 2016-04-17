@@ -2,7 +2,10 @@
 
 module Orchid.Token
        ( Token (..)
+       , tokenRepr
        ) where
+
+import           Data.Text    (Text, pack)
 
 import           Orchid.Types (Identifier, Number)
 
@@ -42,3 +45,39 @@ data Token
     | TokIndent
     | TokDedent
     deriving (Show,Eq)
+
+tokenRepr :: Token -> Text
+tokenRepr TokNewline = "\n"
+tokenRepr (TokName n) = n
+tokenRepr TokSemicolon = ";"
+tokenRepr TokAssign = "="
+tokenRepr TokPass = "pass"
+tokenRepr TokReturn = "return"
+tokenRepr TokOr = "or"
+tokenRepr TokAnd = "and"
+tokenRepr TokNot = "not"
+tokenRepr TokLT = "<"
+tokenRepr TokGT = ">"
+tokenRepr TokEqual = "=="
+tokenRepr TokLE = "<="
+tokenRepr TokGE = ">="
+tokenRepr TokNE = "!="
+tokenRepr TokPlus = "+"
+tokenRepr TokMinus = "-"
+tokenRepr TokStar = "*"
+tokenRepr TokSlash = "/"
+tokenRepr TokPercent = "%"
+tokenRepr TokDoubleStar = "**"
+tokenRepr TokLParen = "("
+tokenRepr TokRParen = ")"
+tokenRepr (TokNumber n) = pack $ show n
+tokenRepr (TokBool b) = pack $ show b
+tokenRepr TokComma = ","
+tokenRepr TokIf = "if"
+tokenRepr TokElse = "else"
+tokenRepr TokWhile = "while"
+tokenRepr TokDef = "def"
+tokenRepr TokColon = ":"
+tokenRepr TokArrow = "→"
+tokenRepr TokIndent = "<INDENT>"
+tokenRepr TokDedent = "<DEDENT>"
