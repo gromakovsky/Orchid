@@ -35,20 +35,20 @@ type Number = Int32
 -- file_input → (NEWLINE | stmt)*
 newtype Input = Input
     { getInput :: [Stmt]
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 -- | Statement is either simple statement or compound statement.
 -- stmt → simple_stmt | compound_stmt
 data Stmt
     = SSimple !SimpleStmt
     | SCompound !CompoundStmt
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Simple statement is a list of small statements.
 -- simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
 data SimpleStmt =
     SimpleStmt ![SmallStmt]
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Small statement is either variable declaration or expression
 -- statement or pass statement or flow statement.
@@ -58,7 +58,7 @@ data SmallStmt
     | SSExpr !ExprStmt
     | SSPass
     | SSFlow !FlowStmt
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Declaration statement declares variable. It contains variable
 -- type, variable name and initial value.
@@ -67,7 +67,7 @@ data DeclStmt = DeclStmt
     { dsType :: !Identifier
     , dsVar  :: !Identifier
     , dsExpr :: !Expr
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 -- | Expression statement executes expression and optionally assigns
 -- result to variable.
@@ -75,20 +75,20 @@ data DeclStmt = DeclStmt
 data ExprStmt = ExprStmt
     { esVar  :: !(Maybe Identifier)
     , esExpr :: !Expr
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 -- | Flow statement represents control flow operators. Only `return`
 -- is supported at this point.
 -- flow_stmt → return_stmt
 data FlowStmt =
     FSReturn !ReturnStmt
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Return statement contains optional return value.
 -- return_stmt → 'return' [expr]
 data ReturnStmt =
     ReturnStmt !(Maybe Expr)
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Expression is either unary operation applied to expression or
 -- binary operation applied to two expressions or atom expression.
@@ -108,14 +108,14 @@ data Expr
               !Expr
               !Expr
     | EAtom !AtomExpr
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Unary operation is either unary plus or unary minus or boolean `not`.
 data UnaryOp
     = UnaryPlus
     | UnaryMinus
     | UnaryNot
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Binary operation is one of `or`, `and`, `<`, `>`, `==`, `<=`,
 -- `>=`, `!=`, "+", "-", "*", "/", "%", "**".
@@ -134,7 +134,7 @@ data BinaryOp
     | BinDiv
     | BinMod
     | BinPower
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Atom expression is either Atom or function call.
 -- atom_expr → atom [trailer]
@@ -145,7 +145,7 @@ data AtomExpr
     = AEAtom !Atom
     | AECall !Atom
              ![Expr]
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Atom is either an expression or identifier or number or boolean
 -- constant.
@@ -155,7 +155,7 @@ data Atom
     | AIdentifier !Identifier
     | ANumber !Number
     | ABool !Bool
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Compound statement is either if statement or while statement or
 -- function definition.
@@ -164,7 +164,7 @@ data CompoundStmt
     = CSIf !IfStmt
     | CSWhile !WhileStmt
     | CSFunc !FuncDef
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | If statement contains condition expression, suite to execute in
 -- True case and optional suite to execute in False case.
@@ -173,14 +173,14 @@ data IfStmt =
     IfStmt !Expr
            !Suite
            !(Maybe Suite)
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | While statement contains condition expression and body suite.
 -- while_stmt → 'while' expr ':' suite
 data WhileStmt =
     WhileStmt !Expr
               !Suite
-    deriving (Show)
+    deriving (Show, Eq)
 
 -- | Function definition contains function name, list of typed
 -- arguments, optional return value and body suite.
@@ -192,17 +192,17 @@ data FuncDef = FuncDef
     , funcArgs :: ![TypedArgument]
     , funcRet  :: !(Maybe Identifier)
     , funcBody :: !Suite
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 -- | Type argument consists of name and type.
 -- typedarg → NAME ':' NAME
 data TypedArgument = TypedArgument
     { taName :: !Identifier
     , taType :: !Identifier
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 -- | Suite is basically a list of statements.
 -- suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 newtype Suite = Suite
     { getSuite :: [Stmt]
-    } deriving (Show)
+    } deriving (Show, Eq)

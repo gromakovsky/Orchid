@@ -45,6 +45,7 @@ test-suite orchid-test
   main-is:             Test.hs
   other-modules:       Orchid.Arbitrary
                        Orchid.LexerSpec
+                       Orchid.ParserSpec
                        Spec
   type:                exitcode-stdio-1.0
   build-depends:       base >= 4.8
