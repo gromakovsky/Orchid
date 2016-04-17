@@ -100,7 +100,7 @@ passL :: Lexer
 passL = TokPass <$ (verifyNoExtra >> Tok.symbol lexerGen "pass")
 
 returnL :: Lexer
-returnL = TokPass <$ (verifyNoExtra >> Tok.symbol lexerGen "pass")
+returnL = TokPass <$ (verifyNoExtra >> Tok.symbol lexerGen "return")
 
 indentL :: Lexer
 indentL = readExtraToken TokIndent
@@ -117,7 +117,7 @@ processNewIndent topIndent newIndent
           newIndent `elemIndex` lsStack
   | otherwise = modifyState $ appendIndent newIndent
   where
-    reportInvalidIndent = parserFail "Invalid indentation"
+    reportInvalidIndent = parserFail "invalid indentation"
     onDedent cnt LexerState{..} =
         LexerState
         { lsStack = drop (cnt + 1) lsStack
