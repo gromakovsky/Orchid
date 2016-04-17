@@ -10,11 +10,15 @@ import           Data.Text        (Text)
 import qualified Data.Text.IO     as TIO
 import           Text.Parsec      ((<|>))
 import qualified Text.Parsec      as P
+import qualified Text.Parsec.Expr as E
 import           Text.Parsec.Text (GenParser)
 
-import           Orchid.Lexer     (LexerState, assignL, boolL, commaL,
-                                   lexerState, lparenL, nameL, newlineL,
-                                   numberL, passL, returnL, rparenL, semicolonL)
+import           Orchid.Lexer     (LexerState, andL, assignL, boolL, commaL,
+                                   doubleStarL, equalL, geL, gtL, leL,
+                                   lexerState, lparenL, ltL, minusL, nameL, neL,
+                                   newlineL, notL, numberL, orL, passL,
+                                   percentL, plusL, returnL, rparenL,
+                                   semicolonL, slashL, starL)
 import qualified Orchid.Token     as Tok
 import qualified Orchid.Types     as OT
 
@@ -76,10 +80,32 @@ parseReturnStmt = do
     () <$ returnL
     OT.ReturnStmt <$> P.optionMaybe (P.try parseExpr)
 
--- TODO
 parseExpr :: Parser OT.Expr
-parseExpr = parseEAtom
+parseExpr = E.buildExpressionParser table parseEAtom
   where
+    binary lexer op = E.Infix (binaryParser lexer op)
+    binaryParser lexer op = OT.EBinary op <$ lexer
+    unary lexer op = E.Prefix (unaryParser lexer op)
+    unaryParser lexer op = OT.EUnary op <$ lexer
+    n = E.AssocNone
+    l = E.AssocLeft
+    r = E.AssocRight
+    table =
+        [ [binary doubleStarL OT.BinPower r]
+        , [unary plusL OT.UnaryPlus, unary minusL OT.UnaryMinus]
+        , [ binary starL OT.BinMult l
+          , binary slashL OT.BinDiv l
+          , binary percentL OT.BinMod l]
+        , [binary plusL OT.BinPlus l, binary minusL OT.BinMinus l]
+        , [ binary ltL OT.BinLT n
+          , binary gtL OT.BinGT n
+          , binary equalL OT.BinEQ n
+          , binary leL OT.BinLE n
+          , binary geL OT.BinGE n
+          , binary neL OT.BinNE n]
+        , [unary notL OT.UnaryNot]
+        , [binary andL OT.BinAnd l]
+        , [binary orL OT.BinOr l]]
     parseEAtom = OT.EAtom <$> parseAtomExpr
 
 parseAtomExpr :: Parser OT.AtomExpr

@@ -114,10 +114,11 @@ data Expr
 data UnaryOp
     = UnaryPlus
     | UnaryMinus
+    | UnaryNot
     deriving (Show)
 
 -- | Binary operation is one of `or`, `and`, `<`, `>`, `==`, `<=`,
--- `>=`, `!=`.
+-- `>=`, `!=`, "+", "-", "*", "/", "%", "**".
 data BinaryOp
     = BinOr
     | BinAnd
@@ -127,6 +128,12 @@ data BinaryOp
     | BinLE
     | BinGE
     | BinNE
+    | BinPlus
+    | BinMinus
+    | BinMult
+    | BinDiv
+    | BinMod
+    | BinPower
     deriving (Show)
 
 -- | Atom expression is either Atom or function call.
