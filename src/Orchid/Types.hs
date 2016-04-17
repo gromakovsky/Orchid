@@ -186,6 +186,7 @@ data WhileStmt =
 -- arguments, optional return value and body suite.
 -- funcdef → 'def' NAME parameters ['→' NAME] ':' suite
 -- parameters → '(' [typedarglist] ')'
+-- typedarglist → typedarg (',' typedarg)* [',']
 data FuncDef = FuncDef
     { funcName :: !Identifier
     , funcArgs :: ![TypedArgument]
@@ -201,6 +202,7 @@ data TypedArgument = TypedArgument
     } deriving (Show)
 
 -- | Suite is basically a list of statements.
+-- suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 newtype Suite = Suite
     { getSuite :: [Stmt]
     } deriving (Show)
