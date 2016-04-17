@@ -8,7 +8,7 @@ import           Orchid.Types (Identifier, Number)
 
 data Token
     = TokNewline
-    | TokName !Identifier
+    | TokName { getTokName :: !Identifier}
     | TokSemicolon
     | TokAssign
     | TokPass
@@ -30,8 +30,8 @@ data Token
     | TokDoubleStar
     | TokLParen
     | TokRParen
-    | TokNumber !Number
-    | TokBool !Bool
+    | TokNumber { getTokNumber :: !Number}
+    | TokBool { getTokBool :: !Bool}
     | TokComma
     | TokIf
     | TokWhile
@@ -40,4 +40,4 @@ data Token
     | TokArrow
     | TokIndent
     | TokDedent
-    deriving (Show, Eq)
+    deriving (Show,Eq)

@@ -10,6 +10,15 @@ module Orchid.Lexer
        , assignL
        , passL
        , returnL
+       , lparenL
+       , rparenL
+       , numberL
+       , boolL
+       , commaL
+       , ifL
+       , whileL
+       , defL
+       , colonL
        , indentL
        , dedentL
        ) where
@@ -53,7 +62,7 @@ lexerGen = Tok.makeTokenParser style
         , Tok.identLetter = alphaNum <|> oneOf "_'$"
         , Tok.opStart = oneOf "|&!<>=+-*/%"
         , Tok.opLetter = Tok.opStart style
-        , Tok.reservedNames = ["pass", "return", "def"]
+        , Tok.reservedNames = ["pass", "return", "def", "True", "False", "if"]
         , Tok.reservedOpNames = [ "||"
                                 , "&&"
                                 , "!"
@@ -88,19 +97,49 @@ newlineL =
        processNewIndent (headDef 0 lsStack) newIndent
 
 nameL :: Lexer
-nameL = TokName . pack <$> (verifyNoExtra >> Tok.identifier lexerGen)
+nameL = verifyNoExtra >> TokName . pack <$> Tok.identifier lexerGen
 
 semicolonL :: Lexer
-semicolonL = TokSemicolon <$ (verifyNoExtra >> Tok.semi lexerGen)
+semicolonL = verifyNoExtra >> TokSemicolon <$ Tok.semi lexerGen
 
 assignL :: Lexer
-assignL = TokAssign <$ (verifyNoExtra >> Tok.symbol lexerGen "=")
+assignL = verifyNoExtra >> TokAssign <$ Tok.symbol lexerGen "="
 
 passL :: Lexer
-passL = TokPass <$ (verifyNoExtra >> Tok.symbol lexerGen "pass")
+passL = verifyNoExtra >> TokPass <$ Tok.symbol lexerGen "pass"
 
 returnL :: Lexer
-returnL = TokPass <$ (verifyNoExtra >> Tok.symbol lexerGen "return")
+returnL = verifyNoExtra >> TokReturn <$ Tok.symbol lexerGen "return"
+
+lparenL :: Lexer
+lparenL = verifyNoExtra >> TokLParen <$ Tok.symbol lexerGen "("
+
+rparenL :: Lexer
+rparenL = verifyNoExtra >> TokRParen <$ Tok.symbol lexerGen ")"
+
+numberL :: Lexer
+numberL = TokNumber . fromIntegral <$> (verifyNoExtra >> Tok.integer lexerGen)
+
+boolL :: Lexer
+boolL =
+    verifyNoExtra >>
+    (TokBool True <$ Tok.reserved lexerGen "True" <|>
+     TokBool False <$ Tok.reserved lexerGen "False")
+
+commaL :: Lexer
+commaL = TokComma <$ Tok.comma lexerGen
+
+ifL :: Lexer
+ifL = TokIf <$ Tok.reserved lexerGen "if"
+
+whileL :: Lexer
+whileL = TokWhile <$ Tok.reserved lexerGen "while"
+
+defL :: Lexer
+defL = TokDef <$ Tok.reserved lexerGen "def"
+
+colonL :: Lexer
+colonL = TokColon <$ Tok.colon lexerGen
 
 indentL :: Lexer
 indentL = readExtraToken TokIndent

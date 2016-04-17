@@ -73,7 +73,7 @@ data DeclStmt = DeclStmt
 -- result to variable.
 -- expr_stmt → [NAME '='] expr
 data ExprStmt = ExprStmt
-    { esVar  :: !Identifier
+    { esVar  :: !(Maybe Identifier)
     , esExpr :: !Expr
     } deriving (Show)
 
