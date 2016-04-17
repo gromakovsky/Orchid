@@ -29,6 +29,7 @@ library
 
 executable orchid
   main-is:             Main.hs
+  other-modules:       Options
   build-depends:       base >= 4.8
                      , optparse-applicative
                      , Orchid
