@@ -413,7 +413,6 @@ makeTokenParser languageDef
         = do{ x <- p; whiteSpace; return x  }
 
 
-    --whiteSpace
     whiteSpace
         | noLine && noMulti  = skipMany (simpleSpace <?> "")
         | noLine             = skipMany (simpleSpace <|> multiLineComment <?> "")
@@ -430,8 +429,7 @@ makeTokenParser languageDef
     oneLineComment =
         do{ try (string (commentLine languageDef))
           ; skipMany (satisfy (/= '\n'))
-          ; char '\n'
-          ; return ()
+          ; try (() <$ char '\n') <|> eof
           }
 
     multiLineComment =
