@@ -283,7 +283,7 @@ processNewIndent topIndent newIndent
     reportInvalidIndent = parserFail "invalid indentation"
     onDedent cnt LexerState{..} =
         LexerState
-        { lsStack = drop (cnt + 1) lsStack
+        { lsStack = drop cnt lsStack
         , lsExtraTokens = genericReplicate cnt TokDedent ++ lsExtraTokens
         }
     appendIndent i LexerState{..} =
