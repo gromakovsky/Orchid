@@ -5,7 +5,7 @@ module Orchid.Parser
        , parseInput
        ) where
 
-import           Data.Maybe       (catMaybes)
+import           Data.Maybe       (catMaybes, fromMaybe)
 import           Data.Text        (Text)
 import qualified Data.Text.IO     as TIO
 import           Text.Parsec      ((<|>))
@@ -13,12 +13,13 @@ import qualified Text.Parsec      as P
 import qualified Text.Parsec.Expr as E
 import           Text.Parsec.Text (GenParser)
 
-import           Orchid.Lexer     (LexerState, andL, assignL, boolL, commaL,
-                                   doubleStarL, equalL, geL, gtL, leL,
+import           Orchid.Lexer     (LexerState, andL, arrowL, assignL, boolL,
+                                   colonL, commaL, dedentL, defL, doubleStarL,
+                                   elseL, equalL, geL, gtL, ifL, indentL, leL,
                                    lexerState, lparenL, ltL, minusL, nameL, neL,
                                    newlineL, notL, numberL, orL, passL,
                                    percentL, plusL, returnL, rparenL,
-                                   semicolonL, slashL, starL)
+                                   semicolonL, slashL, starL, whileL)
 import qualified Orchid.Token     as Tok
 import qualified Orchid.Types     as OT
 
@@ -38,6 +39,9 @@ parser :: Parser OT.Input
 parser =
     OT.Input . catMaybes <$>
     (P.many (P.try (Nothing <$ newlineL) <|> (Just <$> parseStmt)) <* P.eof)
+
+parseName :: Parser OT.Identifier
+parseName = Tok.getTokName <$> nameL
 
 parseStmt :: Parser OT.Stmt
 parseStmt =
@@ -63,13 +67,12 @@ parseSmallStmt =
 
 parseDeclStmt :: Parser OT.DeclStmt
 parseDeclStmt =
-    OT.DeclStmt <$> (Tok.getTokName <$> nameL) <*> (Tok.getTokName <$> nameL) <*>
+    OT.DeclStmt <$> parseName <*> parseName <*>
     (assignL >> parseExpr)
 
 parseExprStmt :: Parser OT.ExprStmt
 parseExprStmt =
-    OT.ExprStmt <$>
-    (P.optionMaybe . P.try $ Tok.getTokName <$> nameL <* assignL) <*>
+    OT.ExprStmt <$> (P.optionMaybe . P.try $ parseName <* assignL) <*>
     parseExpr
 
 parseFlowStmt :: Parser OT.FlowStmt
@@ -113,8 +116,10 @@ parseAtomExpr = do
     a <- parseAtom
     maybe (OT.AEAtom a) (OT.AECall a) <$> P.optionMaybe (P.try parseTrailer)
   where
-    parseTrailer = P.between lparenL rparenL parseArglist
-    parseArglist = do
+    parseTrailer = P.between lparenL rparenL parseOptionalArgList
+    parseOptionalArgList =
+        fromMaybe [] <$> (P.optionMaybe . P.try $ parseArgList)
+    parseArgList = do
         a0 <- parseExpr
         as <- P.many . P.try $ commaL >> parseExpr
         a0 : as <$ P.optional commaL
@@ -124,8 +129,43 @@ parseAtom =
     P.choice
         [ OT.AExpr <$> P.between lparenL rparenL parseExpr
         , P.try $ OT.ABool . Tok.getTokBool <$> boolL
-        , OT.AIdentifier . Tok.getTokName <$> nameL
+        , OT.AIdentifier <$> parseName
         , OT.ANumber . Tok.getTokNumber <$> numberL]
 
 parseCompoundStmt :: Parser OT.CompoundStmt
-parseCompoundStmt = fail "undefined"
+parseCompoundStmt =
+    P.choice
+        [ OT.CSIf <$> parseIf
+        , OT.CSWhile <$> parseWhile
+        , OT.CSFunc <$> parseFuncDef]
+
+parseIf :: Parser OT.IfStmt
+parseIf =
+    OT.IfStmt <$> (ifL >> parseExpr) <*> (colonL >> parseSuite) <*>
+    (P.optionMaybe . P.try $ elseL >> colonL >> parseSuite)
+
+parseWhile :: Parser OT.WhileStmt
+parseWhile = OT.WhileStmt <$> (whileL >> parseExpr) <*> (colonL >> parseSuite)
+
+parseFuncDef :: Parser OT.FuncDef
+parseFuncDef =
+    OT.FuncDef <$> (defL >> parseName) <*>
+    (P.between lparenL rparenL parseOptionalTypedArgs) <*>
+    (P.optionMaybe . P.try $ arrowL >> parseName) <*>
+    (colonL >> parseSuite)
+  where
+    parseOptionalTypedArgs =
+        fromMaybe [] <$> (P.optionMaybe . P.try $ parseTypedArgs)
+    parseTypedArgs = do
+        a <- parseTypedArgument
+        as <- P.many . P.try $ commaL >> parseTypedArgument
+        a : as <$ P.optional commaL
+
+parseTypedArgument :: Parser OT.TypedArgument
+parseTypedArgument = OT.TypedArgument <$> parseName <*> (colonL >> parseName)
+
+parseSuite :: Parser OT.Suite
+parseSuite =
+    P.choice
+        [ OT.Suite . replicate 1 . OT.SSimple <$> parseSimpleStmt
+        , OT.Suite <$> (newlineL >> indentL >> P.many1 parseStmt <* dedentL)]
