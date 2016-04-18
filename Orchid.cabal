@@ -9,6 +9,7 @@ cabal-version:         >=1.18
 
 library
   exposed-modules:     Orchid.Codegen
+                     , Orchid.Compiler
                      , Orchid.Error
                      , Orchid.Lexer
                      , Orchid.Parser

@@ -45,6 +45,7 @@ module Orchid.Lexer
        , dedentL
        ) where
 
+import           Control.Exception    (throwIO)
 import           Control.Monad        (unless)
 import           Data.List            (elemIndex, genericLength,
                                        genericReplicate)
@@ -58,6 +59,7 @@ import qualified Text.Parsec          as P
 import           Text.Parsec.Language (emptyDef)
 import           Text.Parsec.Text     (GenParser)
 
+import           Orchid.Error         (ParserException (ParserException))
 import qualified Orchid.ParsecToken   as Tok
 import           Orchid.Token         (Token (..))
 
@@ -117,8 +119,10 @@ firstToken = P.runParser anyL lexerState
 tokenizer :: Parser [Token]
 tokenizer = P.manyTill anyL P.eof
 
-tokenizeInputFile :: FilePath -> IO (Either P.ParseError [Token])
-tokenizeInputFile fp = tokenizeInput fp <$> TIO.readFile fp
+tokenizeInputFile :: FilePath -> IO [Token]
+tokenizeInputFile fp =
+    either (throwIO . ParserException) return =<<
+    tokenizeInput fp <$> TIO.readFile fp
 
 tokenizeInput :: P.SourceName -> Text -> Either P.ParseError [Token]
 tokenizeInput = P.runParser tokenizer lexerState

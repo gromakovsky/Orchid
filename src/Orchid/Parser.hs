@@ -5,23 +5,25 @@ module Orchid.Parser
        , parseInput
        ) where
 
-import           Data.Maybe       (catMaybes, fromMaybe)
-import           Data.Text        (Text)
-import qualified Data.Text.IO     as TIO
-import           Text.Parsec      ((<|>))
-import qualified Text.Parsec      as P
-import qualified Text.Parsec.Expr as E
-import           Text.Parsec.Text (GenParser)
+import           Control.Exception (throwIO)
+import           Data.Maybe        (catMaybes, fromMaybe)
+import           Data.Text         (Text)
+import qualified Data.Text.IO      as TIO
+import           Text.Parsec       ((<|>))
+import qualified Text.Parsec       as P
+import qualified Text.Parsec.Expr  as E
+import           Text.Parsec.Text  (GenParser)
 
-import           Orchid.Lexer     (LexerState, andL, arrowL, assignL, boolL,
-                                   colonL, commaL, dedentL, defL, doubleStarL,
-                                   elseL, equalL, geL, gtL, ifL, indentL, leL,
-                                   lexerState, lparenL, ltL, minusL, nameL, neL,
-                                   newlineL, notL, numberL, orL, passL,
-                                   percentL, plusL, returnL, rparenL,
-                                   semicolonL, slashL, starL, whileL)
-import qualified Orchid.Token     as Tok
-import qualified Orchid.Types     as OT
+import           Orchid.Error      (ParserException (ParserException))
+import           Orchid.Lexer      (LexerState, andL, arrowL, assignL, boolL,
+                                    colonL, commaL, dedentL, defL, doubleStarL,
+                                    elseL, equalL, geL, gtL, ifL, indentL, leL,
+                                    lexerState, lparenL, ltL, minusL, nameL,
+                                    neL, newlineL, notL, numberL, orL, passL,
+                                    percentL, plusL, returnL, rparenL,
+                                    semicolonL, slashL, starL, whileL)
+import qualified Orchid.Token      as Tok
+import qualified Orchid.Types      as OT
 
 type ParserState = LexerState
 type Parser = GenParser ParserState
@@ -29,8 +31,10 @@ type Parser = GenParser ParserState
 parserState :: ParserState
 parserState = lexerState
 
-parseInputFile :: FilePath -> IO (Either P.ParseError OT.Input)
-parseInputFile fp = parseInput fp <$> TIO.readFile fp
+parseInputFile :: FilePath -> IO OT.Input
+parseInputFile fp =
+    either (throwIO . ParserException) return =<<
+    parseInput fp <$> TIO.readFile fp
 
 parseInput :: P.SourceName -> Text -> Either P.ParseError OT.Input
 parseInput = P.runParser parser parserState
