@@ -33,8 +33,25 @@ module Orchid.Codegen
          -- References
        , local
 
-         -- Arithmetics
+         -- Unary operators
+       , neg
+       , not
+
+         -- Binary operators
+       , or
+       , and
+       , xor
        , add
+       , lessThan
+       , greaterThan
+       , equal
+       , lessOrEqual
+       , notEqual
+       , greaterOrEqual
+       , sub
+       , mul
+       , div
+       , mod
 
          -- Constants
        , constInt32
@@ -76,8 +93,11 @@ import qualified LLVM.General.AST.Attribute         as A
 import qualified LLVM.General.AST.CallingConvention as CC
 import qualified LLVM.General.AST.Constant          as C
 import qualified LLVM.General.AST.Global            as G
+import qualified LLVM.General.AST.IntegerPredicate  as IP
 import           LLVM.General.AST.Type              (Type (..), i1, i32, i64,
                                                      void)
+import           Prelude                            hiding (and, div, mod, not,
+                                                     or)
 import           Serokell.Util                      (formatSingle')
 
 import           Orchid.Error                       (CodegenException (CodegenException))
@@ -307,11 +327,63 @@ local :: Type -> AST.Name -> AST.Operand
 local = AST.LocalReference
 
 -------------------------------------------------------------------------------
--- Arithmetics
+-- Unary operations
 -------------------------------------------------------------------------------
+
+neg :: AST.Operand -> Codegen AST.Operand
+neg = sub $ constInt64 0
+
+not :: AST.Operand -> Codegen AST.Operand
+not = xor $ constBool True
+
+-------------------------------------------------------------------------------
+-- Binary operations
+-------------------------------------------------------------------------------
+
+or :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+or a b = instr $ AST.Or a b []
+
+and :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+and a b = instr $ AST.And a b []
+
+xor :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+xor a b = instr $ AST.Xor a b []
+
+cmp :: IP.IntegerPredicate -> AST.Operand -> AST.Operand -> Codegen AST.Operand
+cmp cond a b = instr $ AST.ICmp cond a b []
+
+lessThan :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+lessThan = cmp IP.SLT
+
+greaterThan :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+greaterThan = cmp IP.SGT
+
+equal :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+equal = cmp IP.EQ
+
+lessOrEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+lessOrEqual = cmp IP.SLE
+
+notEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+notEqual = cmp IP.NE
+
+greaterOrEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+greaterOrEqual = cmp IP.SGE
 
 add :: AST.Operand -> AST.Operand -> Codegen AST.Operand
 add a b = instr $ AST.Add False False a b []
+
+sub :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+sub a b = instr $ AST.Sub False False a b []
+
+mul :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+mul a b = instr $ AST.Mul False False a b []
+
+div :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+div a b = instr $ AST.SDiv False a b []
+
+mod :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+mod a b = instr $ AST.SRem a b []
 
 -------------------------------------------------------------------------------
 -- Constants

@@ -148,12 +148,34 @@ instance ToCodegen OT.ReturnStmt () where
         () <$ maybe (C.ret Nothing) (C.ret . Just <=< toCodegen) me
 
 instance ToCodegen OT.Expr AST.Operand where
-    toCodegen (OT.EUnary _ _) = todo
-    toCodegen (OT.EBinary OT.BinPlus a b) = do
+    toCodegen (OT.EUnary uOp a) = toCodegen a >>= convertUnOp uOp
+      where
+        convertUnOp OT.UnaryPlus = pure
+        convertUnOp OT.UnaryMinus = C.neg
+        convertUnOp OT.UnaryNot = C.not
+    toCodegen (OT.EBinary bOp a b) = do
         op1 <- toCodegen a
         op2 <- toCodegen b
-        C.add op1 op2
-    toCodegen (OT.EBinary _ _ _) = todo
+        convertBinOp bOp op1 op2
+      where
+        convertBinOp OT.BinOr = C.or
+        convertBinOp OT.BinAnd = C.and
+        convertBinOp OT.BinLT = C.lessThan
+        convertBinOp OT.BinGT = C.greaterThan
+        convertBinOp OT.BinEQ = C.equal
+        convertBinOp OT.BinLE = C.lessOrEqual
+        convertBinOp OT.BinNE = C.notEqual
+        convertBinOp OT.BinGE = C.greaterOrEqual
+        convertBinOp OT.BinPlus = C.add
+        convertBinOp OT.BinMinus = C.sub
+        convertBinOp OT.BinMult = C.mul
+        convertBinOp OT.BinDiv = C.div
+        convertBinOp OT.BinMod = C.mod
+        -- power is a standard function from prelude
+        convertBinOp OT.BinPower =
+            \a' b' ->
+                 do f <- toCodegen (OT.AIdentifier "power")
+                    C.call f [a', b']
     toCodegen (OT.EAtom a) = toCodegen a
 
 instance ToCodegen OT.AtomExpr AST.Operand where
