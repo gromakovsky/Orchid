@@ -10,7 +10,7 @@ module Orchid.Translator
        ) where
 
 import           Control.Exception       (throwIO)
-import           Control.Monad           ((<=<))
+import           Control.Monad           (join, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT, throwError)
 import qualified Data.Map                as M
 import           Data.Monoid             ((<>))
@@ -158,7 +158,8 @@ instance ToCodegen OT.Expr AST.Operand where
 
 instance ToCodegen OT.AtomExpr AST.Operand where
     toCodegen (OT.AEAtom a) = toCodegen a
-    toCodegen (OT.AECall _ _) = todo
+    toCodegen (OT.AECall f exprs) =
+        join $ C.call <$> toCodegen f <*> mapM toCodegen exprs
 
 instance ToCodegen OT.Atom AST.Operand where
     toCodegen (OT.AExpr e) = toCodegen e
