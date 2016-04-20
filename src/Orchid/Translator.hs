@@ -1,6 +1,5 @@
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TupleSections         #-}
 
 -- | Translator transforms AST into LLVM representation.
 
@@ -11,7 +10,7 @@ module Orchid.Translator
 
 import           Control.Exception       (throwIO)
 import           Control.Monad           (join, (<=<))
-import           Control.Monad.Except    (ExceptT, runExceptT, throwError)
+import           Control.Monad.Except    (ExceptT, runExceptT)
 import qualified Data.Map                as M
 import           Data.Monoid             ((<>))
 import           Data.String.Conversions (convertString)
@@ -43,8 +42,8 @@ translate mName inp continuation =
                    handleError $ G.withModuleFromAST context m continuation)
              mFinalEither
   where
-    m0 = C.emptyModule mName
-    mFinalEither = C.execLLVM m0 $ toLLVM inp
+    initialState = C.emptyLLVM mName
+    mFinalEither = C.execLLVM initialState $ C.toLLVM inp
 
 translateToFile :: FilePath -> OT.Input -> IO ()
 translateToFile fp input =
@@ -68,94 +67,85 @@ convertTypedArg OT.TypedArgument{..} =
     (, C.Name (convertString taName)) <$> lookupType taType
 
 --------------------------------------------------------------------------------
--- ToLLVM
+-- C.ToLLVM
 --------------------------------------------------------------------------------
 
-class ToLLVM a  where
-    toLLVM :: a -> C.LLVM ()
+instance C.ToLLVM OT.Input where
+    toLLVM = mapM_ C.toLLVM . OT.getInput
 
-instance ToLLVM OT.Input where
-    toLLVM = mapM_ toLLVM . OT.getInput
-
-instance ToLLVM OT.Stmt where
-    toLLVM (OT.SSimple s) = toLLVM s
-    toLLVM (OT.SCompound s) = toLLVM s
+instance C.ToLLVM OT.Stmt where
+    toLLVM (OT.SSimple s) = C.toLLVM s
+    toLLVM (OT.SCompound s) = C.toLLVM s
 
 -- TODO: report error
-instance ToLLVM OT.SimpleStmt where
-    toLLVM (OT.SimpleStmt smallStmts) = mapM_ toLLVM smallStmts
+instance C.ToLLVM OT.SimpleStmt where
+    toLLVM (OT.SimpleStmt smallStmts) = mapM_ C.toLLVM smallStmts
 
-instance ToLLVM OT.SmallStmt where
+instance C.ToLLVM OT.SmallStmt where
     toLLVM _ = return ()
 
-instance ToLLVM OT.CompoundStmt where
+instance C.ToLLVM OT.CompoundStmt where
     toLLVM (OT.CSIf _) =
         C.throwCodegenError "'if' is not a valid top-level statement"
     toLLVM (OT.CSWhile _) =
         C.throwCodegenError "'while' is not a valid top-level statement"
-    toLLVM (OT.CSFunc s) = toLLVM s
+    toLLVM (OT.CSFunc s) = C.toLLVM s
 
-instance ToLLVM OT.FuncDef where
+instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
         ret <- maybe (return C.void) lookupType funcRet
         args <- mapM convertTypedArg funcArgs
-        either throwError (C.addFuncDef ret (convertString funcName) args) $
-            bodyEither args
+        C.addFuncDef ret (convertString funcName) args $ bodyCodegen args
       where
-        bodyEither args = C.execCodegen (bodyCodegen args) >>= C.createBlocks
         bodyCodegen args = do
             mapM_ codegenArgument args
-            toCodegen funcBody
+            C.toCodegen funcBody
         codegenArgument (argType,argName) = do
             var <- C.alloca argType
             () <$ (C.store var $ AST.LocalReference argType argName)
-            C.assign (fromName argName) var
+            C.assignLocal (fromName argName) var
         fromName (AST.Name s) = s
         fromName _ = error "fromName failed"
 
-
 --------------------------------------------------------------------------------
--- ToCodegen
+-- C.ToCodegen
 --------------------------------------------------------------------------------
 
 todo :: C.Codegen a
 todo = C.throwCodegenError "TODO"
 
-class ToCodegen a r | a -> r where
-    toCodegen :: a -> C.Codegen r
+instance C.ToCodegen OT.Stmt () where
+    toCodegen (OT.SSimple s) = C.toCodegen s
+    toCodegen (OT.SCompound s) = C.toCodegen s
 
-instance ToCodegen OT.Stmt () where
-    toCodegen (OT.SSimple s) = toCodegen s
-    toCodegen (OT.SCompound s) = toCodegen s
+instance C.ToCodegen OT.SimpleStmt () where
+    toCodegen (OT.SimpleStmt smallStmts) = mapM_ C.toCodegen smallStmts
 
-instance ToCodegen OT.SimpleStmt () where
-    toCodegen (OT.SimpleStmt smallStmts) = mapM_ toCodegen smallStmts
-
-instance ToCodegen OT.SmallStmt () where
+instance C.ToCodegen OT.SmallStmt () where
     toCodegen (OT.SSDecl _) = todo
-    toCodegen (OT.SSExpr e) = toCodegen e
+    toCodegen (OT.SSExpr e) = C.toCodegen e
     toCodegen OT.SSPass = return ()
-    toCodegen (OT.SSFlow fs) = toCodegen fs
+    toCodegen (OT.SSFlow fs) = C.toCodegen fs
 
-instance ToCodegen OT.ExprStmt () where
-    toCodegen OT.ExprStmt {..} = () <$ toCodegen esExpr  -- TODO
+instance C.ToCodegen OT.ExprStmt () where
+    toCodegen OT.ExprStmt {..} = () <$ C.toCodegen esExpr  -- TODO
 
-instance ToCodegen OT.FlowStmt () where
-    toCodegen (OT.FSReturn rs) = toCodegen rs
+instance C.ToCodegen OT.FlowStmt () where
+    toCodegen (OT.FSReturn rs) = C.toCodegen rs
 
-instance ToCodegen OT.ReturnStmt () where
+instance C.ToCodegen OT.ReturnStmt () where
     toCodegen (OT.ReturnStmt me) =
-        () <$ maybe (C.ret Nothing) (C.ret . Just <=< toCodegen) me
+        () <$ maybe (C.ret Nothing) (C.ret . Just <=< C.toCodegen) me
 
-instance ToCodegen OT.Expr AST.Operand where
-    toCodegen (OT.EUnary uOp a) = toCodegen a >>= convertUnOp uOp
+instance C.ToCodegen OT.Expr AST.Operand where
+    toCodegen (OT.EUnary uOp a) = C.toCodegen a >>= convertUnOp uOp
       where
         convertUnOp OT.UnaryPlus = pure
         convertUnOp OT.UnaryMinus = C.neg
         convertUnOp OT.UnaryNot = C.not
     toCodegen (OT.EBinary bOp a b) = do
-        op1 <- toCodegen a
-        op2 <- toCodegen b
+        op1 <- C.toCodegen a
+        op2 <- C.toCodegen b
         convertBinOp bOp op1 op2
       where
         convertBinOp OT.BinOr = C.or
@@ -173,26 +163,26 @@ instance ToCodegen OT.Expr AST.Operand where
         convertBinOp OT.BinMod = C.mod
         convertBinOp OT.BinPower =
             \a' b' ->
-                 do f <- toCodegen (OT.AIdentifier "stdPower")
+                 do f <- C.toCodegen (OT.AIdentifier "stdPower")
                     C.call f [a', b']
-    toCodegen (OT.EAtom a) = toCodegen a
+    toCodegen (OT.EAtom a) = C.toCodegen a
 
-instance ToCodegen OT.AtomExpr AST.Operand where
-    toCodegen (OT.AEAtom a) = toCodegen a
+instance C.ToCodegen OT.AtomExpr AST.Operand where
+    toCodegen (OT.AEAtom a) = C.toCodegen a
     toCodegen (OT.AECall f exprs) =
-        join $ C.call <$> toCodegen f <*> mapM toCodegen exprs
+        join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
 
-instance ToCodegen OT.Atom AST.Operand where
-    toCodegen (OT.AExpr e) = toCodegen e
-    toCodegen (OT.AIdentifier v) = C.getVar (convertString v) >>= C.load
+instance C.ToCodegen OT.Atom AST.Operand where
+    toCodegen (OT.AExpr e) = C.toCodegen e
+    toCodegen (OT.AIdentifier v) = C.getVar $ convertString v
     toCodegen (OT.ANumber n) = pure $ C.constInt64 n
     toCodegen (OT.ABool b) = pure $ C.constBool b
 
-instance ToCodegen OT.CompoundStmt () where
+instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSIf _) = todo
     toCodegen (OT.CSWhile _) = todo
     toCodegen (OT.CSFunc _) =
         C.throwCodegenError "nested functions are not supported"
 
-instance ToCodegen OT.Suite () where
-    toCodegen = mapM_ toCodegen . OT.getSuite
+instance C.ToCodegen OT.Suite () where
+    toCodegen = mapM_ C.toCodegen . OT.getSuite

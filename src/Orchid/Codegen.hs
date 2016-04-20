@@ -1,20 +1,15 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE TemplateHaskell        #-}
 
 -- | Primitive functions to work with LLVM code generation.
 
 module Orchid.Codegen
        (
-         -- Module level
-         LLVM
-       , execLLVM
-       , emptyModule
-       , addDefn
-       , addFuncDef
-
          -- Helpers
-       , throwCodegenError
+         throwCodegenError
 
          -- Types
        , int64
@@ -22,11 +17,13 @@ module Orchid.Codegen
 
          -- Codegen
        , Codegen
+       , ToCodegen
+       , toCodegen
        , createBlocks
        , execCodegen
 
          -- Symbol table
-       , assign
+       , assignLocal
        , getVar
 
          -- References
@@ -65,15 +62,28 @@ module Orchid.Codegen
          -- Control Flow
        , ret
 
+         -- Module level
+       , LlvmState
+       , LLVM
+       , ToLLVM
+       , toLLVM
+       , execLLVM
+       , emptyLLVM
+       , addDefn
+       , addFuncDef
+
          -- Reexports
        , Type (..)
        , void
        , AST.Name (..)
        ) where
 
-import           Control.Lens                       (makeLenses, makeLensesFor,
-                                                     use, view, (%=), (+=),
-                                                     (.=), (.~), (<>~))
+import           Control.Applicative                ((<|>))
+import           Control.Lens                       (at, makeLenses,
+                                                     makeLensesFor, use, view,
+                                                     (%=), (+=), (.=), (.~),
+                                                     (<>=), (<>~), (^.))
+import           Control.Monad                      ((>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
                                                      runExceptT)
@@ -98,46 +108,6 @@ import           Prelude                            hiding (and, div, mod, not,
 import           Serokell.Util                      (formatSingle')
 
 import           Orchid.Error                       (CodegenException (CodegenException))
-
--------------------------------------------------------------------------------
--- Module Level
--------------------------------------------------------------------------------
-
-$(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
-
-newtype LLVM a = LLVM
-    { getLLVM :: ExceptT CodegenException (State AST.Module) a
-    } deriving (Functor,Applicative,Monad,MonadState AST.Module,MonadError CodegenException)
-
-execLLVM :: AST.Module -> LLVM a -> Either CodegenException AST.Module
-execLLVM m = f . flip runState m . runExceptT . getLLVM
-  where
-    f (Left e,_) = Left e
-    f (_,s') = Right s'
-
-emptyModule :: String -> AST.Module
-emptyModule label =
-    AST.defaultModule
-    { AST.moduleName = label
-    }
-
-addDefn :: AST.Definition -> LLVM ()
-addDefn d = mDefinitions %= (++ [d])
-
-addFuncDef :: AST.Type
-           -> String
-           -> [(AST.Type, AST.Name)]
-           -> [G.BasicBlock]
-           -> LLVM ()
-addFuncDef retType funcName args body =
-    addDefn $
-    AST.GlobalDefinition $
-    G.functionDefaults
-    { G.name = AST.Name funcName
-    , G.parameters = ([G.Parameter t n [] | (t, n) <- args], False)
-    , G.returnType = retType
-    , G.basicBlocks = body
-    }
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -187,15 +157,17 @@ data BlockState = BlockState
 
 $(makeLenses ''BlockState)
 
-type SymbolTable = [(String, AST.Operand)]
+type BlockMap = M.Map AST.Name BlockState
+type SymbolTable = M.Map String AST.Operand
 
 data CodegenState = CodegenState
-    { _csCurrentBlock :: AST.Name               -- Name of the active block to append to
-    , _csBlocks       :: M.Map AST.Name BlockState  -- Blocks for function
-    , _csSymtab       :: SymbolTable            -- Function scope symbol table
-    , _csBlockCount   :: Int                    -- Count of basic blocks
-    , _csCount        :: Word                   -- Count of unnamed instructions
-    , _csNames        :: Names                  -- Name Supply
+    { _csCurrentBlock :: AST.Name     -- ^ Name of the active block to append to
+    , _csBlocks       :: BlockMap     -- ^ Blocks for function
+    , _csGlobalSymtab :: SymbolTable  -- ^ Global scope symbol table
+    , _csLocalSymtab  :: SymbolTable  -- ^ Function scope symbol table
+    , _csBlockCount   :: Int          -- ^ Count of basic blocks
+    , _csCount        :: Word         -- ^ Count of unnamed instructions
+    , _csNames        :: Names        -- ^ Name Supply
     } deriving (Show)
 
 $(makeLenses ''CodegenState)
@@ -207,6 +179,12 @@ $(makeLenses ''CodegenState)
 newtype Codegen a = Codegen
     { getCodegen :: ExceptT CodegenException (State CodegenState) a
     } deriving (Functor,Applicative,Monad,MonadState CodegenState,MonadError CodegenException)
+
+class ToCodegen a r | a -> r where
+    toCodegen :: a -> Codegen r
+
+instance ToCodegen (Codegen a) a where
+    toCodegen = id
 
 sortBlocks :: [(AST.Name, BlockState)] -> [(AST.Name, BlockState)]
 sortBlocks = sortBy (compare `on` (view bsIdx . snd))
@@ -222,27 +200,29 @@ makeBlock (l,(BlockState _ s t)) = G.BasicBlock l s <$> makeTerm t
         throwCodegenError $
         formatSingle' "block \"{}\" doesn't have terminator" l
 
-entryBlockName :: String
+entryBlockName :: IsString s => s
 entryBlockName = "entry"
 
 emptyBlock :: Int -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-emptyCodegen :: CodegenState
-emptyCodegen =
+emptyCodegen :: SymbolTable -> CodegenState
+emptyCodegen symbols =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
-    { _csCurrentBlock = (AST.Name entryBlockName)
+    { _csCurrentBlock = entryBlockName
     , _csBlocks = M.empty
-    , _csSymtab = []
+    , _csGlobalSymtab = symbols
+    , _csLocalSymtab = M.empty
     , _csBlockCount = 0
     , _csCount = 0
     , _csNames = M.empty
     }
 
-execCodegen :: Codegen a -> Either CodegenException CodegenState
-execCodegen = f . flip runState emptyCodegen . runExceptT . getCodegen
+execCodegen :: SymbolTable -> Codegen a -> Either CodegenException CodegenState
+execCodegen symbols = f . flip runState initial . runExceptT . getCodegen
   where
+    initial = emptyCodegen symbols
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -305,16 +285,19 @@ setCurrentBlock bs = do
 -- Symbol Table
 -------------------------------------------------------------------------------
 
-assign :: String -> AST.Operand -> Codegen ()
-assign var x = csSymtab %= ((var, x) :)
+assignLocal :: String -> AST.Operand -> Codegen ()
+assignLocal var x = csLocalSymtab %= (M.insert var x)
 
 getVar :: String -> Codegen AST.Operand
 getVar var = do
-    maybe reportError return =<< lookup var <$> use csSymtab
+    glob <- use $ csGlobalSymtab . at var
+    loc <-
+        maybe (return Nothing) (load >=> return . Just) =<<
+        use (csLocalSymtab . at var)
+    maybe reportNotInScope return $ loc <|> glob
   where
-    reportError =
-        throwCodegenError $
-        formatSingle' "local variable is not is scope: {}" var
+    reportNotInScope =
+        throwCodegenError $ formatSingle' "variable is not is scope: {}" var
 
 -------------------------------------------------------------------------------
 -- References
@@ -424,3 +407,63 @@ load ptr = instr $ AST.Load False ptr Nothing 0 []
 
 ret :: Maybe AST.Operand -> Codegen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
+
+-------------------------------------------------------------------------------
+-- Module Level
+-------------------------------------------------------------------------------
+
+$(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
+
+data LlvmState = LlvmState
+    { _lsModule  :: AST.Module
+    , _lsSymbols :: SymbolTable
+    } deriving (Show)
+
+$(makeLenses ''LlvmState)
+
+newtype LLVM a = LLVM
+    { getLLVM :: ExceptT CodegenException (State LlvmState) a
+    } deriving (Functor,Applicative,Monad,MonadState LlvmState,MonadError CodegenException)
+
+class ToLLVM a  where
+    toLLVM :: a -> LLVM ()
+
+execLLVM :: LlvmState -> LLVM a -> Either CodegenException AST.Module
+execLLVM m = f . flip runState m . runExceptT . getLLVM
+  where
+    f (Left e,_) = Left e
+    f (_,s') = Right $ s' ^. lsModule
+
+emptyLLVM :: String -> LlvmState
+emptyLLVM label =
+    flip LlvmState M.empty $
+    AST.defaultModule
+    { AST.moduleName = label
+    }
+
+addDefn :: AST.Definition -> LLVM ()
+addDefn d = lsModule . mDefinitions <>= [d]
+
+addFuncDef
+    :: (ToCodegen a r)
+    => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
+addFuncDef retType funcName args suite = do
+    symbols <- use lsSymbols
+    case bodyEither symbols of
+        Left e -> throwError e
+        Right body -> do
+            addDefn $ AST.GlobalDefinition $
+                G.functionDefaults
+                { G.name = funcName'
+                , G.parameters = parameters
+                , G.returnType = retType
+                , G.basicBlocks = body
+                }
+            lsSymbols . at funcName .=
+                Just
+                    (AST.ConstantOperand $ C.GlobalReference retType $
+                     funcName')
+  where
+    funcName' = AST.Name funcName
+    bodyEither symbols = execCodegen symbols (toCodegen suite) >>= createBlocks
+    parameters = ([G.Parameter t n [] | (t,n) <- args], False)
