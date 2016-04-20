@@ -1,4 +1,4 @@
-# Orchid language
+# Orchid language [![Build Status](https://travis-ci.org/gromakovsky/Orchid.svg?branch=master)](https://travis-ci.org/gromakovsky/Orchid)
 
 Orchid is a programming language not intended to be used be anyone. It's named Orchid because I can.
 
