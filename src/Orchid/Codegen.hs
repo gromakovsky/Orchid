@@ -235,7 +235,7 @@ emptyCodegen =
     { _csCurrentBlock = (AST.Name entryBlockName)
     , _csBlocks = M.empty
     , _csSymtab = []
-    , _csBlockCount = 1
+    , _csBlockCount = 0
     , _csCount = 0
     , _csNames = M.empty
     }
