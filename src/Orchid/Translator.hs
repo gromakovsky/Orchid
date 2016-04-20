@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections         #-}
 
@@ -58,8 +59,14 @@ predefinedTypes :: M.Map OT.Identifier C.Type
 predefinedTypes =
     M.fromList [("int64", C.int64), ("bool", C.bool)]
 
+-- Type lookup will be more complex after user defined classes are added
 lookupType :: OT.Identifier -> C.LLVM C.Type
 lookupType t =
+    maybe (C.throwCodegenError $ "unknown type: " <> t) return $
+    M.lookup t predefinedTypes
+
+lookupType' :: OT.Identifier -> C.Codegen C.Type
+lookupType' t =
     maybe (C.throwCodegenError $ "unknown type: " <> t) return $
     M.lookup t predefinedTypes
 
@@ -113,18 +120,15 @@ instance C.ToLLVM OT.FuncDef where
             mapM_ codegenArgument args
             C.toCodegen funcBody
         codegenArgument (argType,argName) = do
-            var <- C.alloca argType
-            () <$ (C.store var $ AST.LocalReference argType argName)
-            C.assignLocal (fromName argName) var
+            addr <- C.alloca argType
+            () <$ (C.store addr $ AST.LocalReference argType argName)
+            C.assignVar (fromName argName) addr
         fromName (AST.Name s) = s
         fromName _ = error "fromName failed"
 
 --------------------------------------------------------------------------------
 -- C.ToCodegen
 --------------------------------------------------------------------------------
-
-todo :: C.Codegen a
-todo = C.throwCodegenError "TODO"
 
 instance C.ToCodegen OT.Stmt () where
     toCodegen (OT.SSimple s) = C.toCodegen s
@@ -134,13 +138,27 @@ instance C.ToCodegen OT.SimpleStmt () where
     toCodegen (OT.SimpleStmt smallStmts) = mapM_ C.toCodegen smallStmts
 
 instance C.ToCodegen OT.SmallStmt () where
-    toCodegen (OT.SSDecl _) = todo
+    toCodegen (OT.SSDecl d) = C.toCodegen d
     toCodegen (OT.SSExpr e) = C.toCodegen e
     toCodegen OT.SSPass = return ()
     toCodegen (OT.SSFlow fs) = C.toCodegen fs
 
+instance C.ToCodegen OT.DeclStmt () where
+    toCodegen OT.DeclStmt{..} = do
+        t <- lookupType' dsType
+        addr <- C.alloca t
+        val <- C.toCodegen dsExpr
+        () <$ C.store addr val
+        C.assignVar (convertString dsVar) addr
+
 instance C.ToCodegen OT.ExprStmt () where
-    toCodegen OT.ExprStmt {..} = () <$ C.toCodegen esExpr  -- TODO
+    toCodegen OT.ExprStmt{..} = do
+        v <- C.toCodegen esExpr
+        maybe (return ()) (assign v) esVar
+      where
+        assign val var = do
+            addr <- C.getPtr $ convertString var
+            () <$ C.store addr val
 
 instance C.ToCodegen OT.FlowStmt () where
     toCodegen (OT.FSReturn rs) = C.toCodegen rs

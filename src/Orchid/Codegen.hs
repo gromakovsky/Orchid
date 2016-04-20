@@ -23,8 +23,9 @@ module Orchid.Codegen
        , execCodegen
 
          -- Symbol table
-       , assignLocal
+       , assignVar
        , getVar
+       , getPtr
 
          -- Block stack
        , addBlock
@@ -181,6 +182,7 @@ data CodegenState = CodegenState
     , _csBlocks       :: BlockMap     -- ^ Blocks for function
     , _csFunctions    :: Functions    -- ^ Global functions
     , _csVariables    :: SymbolTable  -- ^ Local and global variables
+                                      -- (map from name to address)
     , _csBlockCount   :: Int          -- ^ Count of basic blocks
     , _csCount        :: Word         -- ^ Count of unnamed instructions
     , _csNames        :: Names        -- ^ Name Supply
@@ -319,8 +321,8 @@ setCurrentBlock bs = do
 -- Symbol Table
 -------------------------------------------------------------------------------
 
-assignLocal :: String -> AST.Operand -> Codegen ()
-assignLocal var x = csVariables . at var .= Just x
+assignVar :: String -> AST.Operand -> Codegen ()
+assignVar varName varAddr = csVariables . at varName .= Just varAddr
 
 getVar :: String -> Codegen AST.Operand
 getVar var = do
@@ -334,6 +336,13 @@ getVar var = do
         throwCodegenError $ formatSingle' "variable is not is scope: {}" var
     constructF t = AST.ConstantOperand . C.GlobalReference t $ AST.Name var
 
+getPtr :: String -> Codegen AST.Operand
+getPtr varName =
+    maybe reportNotInScope return =<< use (csVariables . at varName)
+  where
+    reportNotInScope =
+        throwCodegenError $
+        formatSingle' "variable is not is scope: {}" varName
 -------------------------------------------------------------------------------
 -- References
 -------------------------------------------------------------------------------
