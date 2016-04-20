@@ -17,6 +17,7 @@ import           Data.String.Conversions (convertString)
 import qualified LLVM.General            as G
 import qualified LLVM.General.AST        as AST
 import           LLVM.General.Context    (withContext)
+import           Serokell.Util           (formatSingle')
 
 import qualified Orchid.Codegen          as C
 import           Orchid.Error            (LowLevelException (LowLevelException))
@@ -77,12 +78,23 @@ instance C.ToLLVM OT.Stmt where
     toLLVM (OT.SSimple s) = C.toLLVM s
     toLLVM (OT.SCompound s) = C.toLLVM s
 
--- TODO: report error
 instance C.ToLLVM OT.SimpleStmt where
     toLLVM (OT.SimpleStmt smallStmts) = mapM_ C.toLLVM smallStmts
 
 instance C.ToLLVM OT.SmallStmt where
-    toLLVM _ = return ()
+    toLLVM (OT.SSExpr _) =
+        C.throwCodegenError "top-level expression statements are not allowed"
+    toLLVM (OT.SSDecl ds) = C.toLLVM ds
+    toLLVM OT.SSPass = return ()
+    toLLVM (OT.SSFlow _) =
+        C.throwCodegenError "top-level flow statements are not allowed"
+
+instance C.ToLLVM OT.DeclStmt where
+    toLLVM OT.DeclStmt{..} =
+        join $
+        C.addGlobalVariable <$> lookupType dsType <*>
+        pure (convertString dsVar) <*>
+        pure dsExpr
 
 instance C.ToLLVM OT.CompoundStmt where
     toLLVM (OT.CSIf _) =
@@ -175,8 +187,8 @@ instance C.ToCodegen OT.AtomExpr AST.Operand where
 instance C.ToCodegen OT.Atom AST.Operand where
     toCodegen (OT.AExpr e) = C.toCodegen e
     toCodegen (OT.AIdentifier v) = C.getVar $ convertString v
-    toCodegen (OT.ANumber n) = pure $ C.constInt64 n
-    toCodegen (OT.ABool b) = pure $ C.constBool b
+    toCodegen (OT.ANumber n) = AST.ConstantOperand <$> C.toConstant n
+    toCodegen (OT.ABool b) = AST.ConstantOperand <$> C.toConstant b
 
 instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSIf _) = todo
@@ -186,3 +198,24 @@ instance C.ToCodegen OT.CompoundStmt () where
 
 instance C.ToCodegen OT.Suite () where
     toCodegen = mapM_ C.toCodegen . OT.getSuite
+
+--------------------------------------------------------------------------------
+-- C.ToConstant
+--------------------------------------------------------------------------------
+
+instance C.ToConstant OT.Expr where
+    toConstant (OT.EAtom a) = C.toConstant a
+    toConstant _ = C.throwCodegenError "TODO"
+
+instance C.ToConstant OT.AtomExpr where
+    toConstant (OT.AEAtom a) = C.toConstant a
+    toConstant (OT.AECall _ _) =
+        C.throwCodegenError "function call can't be used as constant"
+
+instance C.ToConstant OT.Atom where
+    toConstant (OT.AExpr e) = C.toConstant e
+    toConstant (OT.AIdentifier name) =
+        C.throwCodegenError $
+        formatSingle' "identifier ({}) can't be used as constant" name
+    toConstant (OT.ANumber n) = C.toConstant n
+    toConstant (OT.ABool b) = C.toConstant b

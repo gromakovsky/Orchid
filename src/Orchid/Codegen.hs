@@ -52,6 +52,8 @@ module Orchid.Codegen
          -- Constants
        , constInt64
        , constBool
+       , ToConstant
+       , toConstant
 
          -- Effects
        , call
@@ -71,6 +73,7 @@ module Orchid.Codegen
        , emptyLLVM
        , addDefn
        , addFuncDef
+       , addGlobalVariable
 
          -- Reexports
        , Type (..)
@@ -159,12 +162,13 @@ $(makeLenses ''BlockState)
 
 type BlockMap = M.Map AST.Name BlockState
 type SymbolTable = M.Map String AST.Operand
+type Functions = M.Map String Type
 
 data CodegenState = CodegenState
     { _csCurrentBlock :: AST.Name     -- ^ Name of the active block to append to
     , _csBlocks       :: BlockMap     -- ^ Blocks for function
-    , _csGlobalSymtab :: SymbolTable  -- ^ Global scope symbol table
-    , _csLocalSymtab  :: SymbolTable  -- ^ Function scope symbol table
+    , _csFunctions    :: Functions    -- ^ Global functions
+    , _csVariables    :: SymbolTable  -- ^ Local and global variables
     , _csBlockCount   :: Int          -- ^ Count of basic blocks
     , _csCount        :: Word         -- ^ Count of unnamed instructions
     , _csNames        :: Names        -- ^ Name Supply
@@ -206,23 +210,26 @@ entryBlockName = "entry"
 emptyBlock :: Int -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-emptyCodegen :: SymbolTable -> CodegenState
-emptyCodegen symbols =
+emptyCodegen :: Functions -> SymbolTable -> CodegenState
+emptyCodegen functions symbols =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
     { _csCurrentBlock = entryBlockName
     , _csBlocks = M.empty
-    , _csGlobalSymtab = symbols
-    , _csLocalSymtab = M.empty
+    , _csFunctions = functions
+    , _csVariables = symbols
     , _csBlockCount = 0
     , _csCount = 0
     , _csNames = M.empty
     }
 
-execCodegen :: SymbolTable -> Codegen a -> Either CodegenException CodegenState
-execCodegen symbols = f . flip runState initial . runExceptT . getCodegen
+execCodegen :: Functions
+            -> SymbolTable
+            -> Codegen a
+            -> Either CodegenException CodegenState
+execCodegen functions symbols = f . flip runState initial . runExceptT . getCodegen
   where
-    initial = emptyCodegen symbols
+    initial = emptyCodegen functions symbols
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -286,18 +293,19 @@ setCurrentBlock bs = do
 -------------------------------------------------------------------------------
 
 assignLocal :: String -> AST.Operand -> Codegen ()
-assignLocal var x = csLocalSymtab %= (M.insert var x)
+assignLocal var x = csVariables . at var .= Just x
 
 getVar :: String -> Codegen AST.Operand
 getVar var = do
-    glob <- use $ csGlobalSymtab . at var
-    loc <-
+    f <- fmap constructF <$> use (csFunctions . at var)
+    v <-
         maybe (return Nothing) (load >=> return . Just) =<<
-        use (csLocalSymtab . at var)
-    maybe reportNotInScope return $ loc <|> glob
+        use (csVariables . at var)
+    maybe reportNotInScope return $ v <|> f
   where
     reportNotInScope =
         throwCodegenError $ formatSingle' "variable is not is scope: {}" var
+    constructF t = AST.ConstantOperand . C.GlobalReference t $ AST.Name var
 
 -------------------------------------------------------------------------------
 -- References
@@ -311,10 +319,10 @@ local = AST.LocalReference
 -------------------------------------------------------------------------------
 
 neg :: AST.Operand -> Codegen AST.Operand
-neg = sub $ constInt64 0
+neg = sub $ AST.ConstantOperand $ constInt64 0
 
 not :: AST.Operand -> Codegen AST.Operand
-not = xor $ constBool True
+not = xor $ AST.ConstantOperand $ constBool True
 
 -------------------------------------------------------------------------------
 -- Binary operations
@@ -369,18 +377,30 @@ mod a b = instr $ AST.SRem a b []
 -- Constants
 -------------------------------------------------------------------------------
 
-constInt64 :: Int64 -> AST.Operand
-constInt64 = AST.ConstantOperand . C.Int 64 . toInteger
+constInt64 :: Int64 -> C.Constant
+constInt64 = C.Int 64 . toInteger
 
-constBool :: Bool -> AST.Operand
-constBool = AST.ConstantOperand . C.Int 1 . boolToInteger
+constBool :: Bool -> C.Constant
+constBool = C.Int 1 . boolToInteger
   where
     boolToInteger False = 0
     boolToInteger True = 1
 
+class ToConstant a  where
+    toConstant
+        :: MonadError CodegenException m
+        => a -> m C.Constant
+
+instance ToConstant Int64 where
+    toConstant = pure . constInt64
+
+instance ToConstant Bool where
+    toConstant = pure . constBool
+
 -------------------------------------------------------------------------------
 -- Effects
 -------------------------------------------------------------------------------
+
 toArgs :: [AST.Operand] -> [(AST.Operand, [A.ParameterAttribute])]
 toArgs = map (\x -> (x, []))
 
@@ -415,8 +435,9 @@ ret = terminator . AST.Do . flip AST.Ret []
 $(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
 
 data LlvmState = LlvmState
-    { _lsModule  :: AST.Module
-    , _lsSymbols :: SymbolTable
+    { _lsFunctions :: Functions
+    , _lsVariables :: SymbolTable
+    , _lsModule    :: AST.Module
     } deriving (Show)
 
 $(makeLenses ''LlvmState)
@@ -436,7 +457,7 @@ execLLVM m = f . flip runState m . runExceptT . getLLVM
 
 emptyLLVM :: String -> LlvmState
 emptyLLVM label =
-    flip LlvmState M.empty $
+    LlvmState M.empty M.empty $
     AST.defaultModule
     { AST.moduleName = label
     }
@@ -448,8 +469,9 @@ addFuncDef
     :: (ToCodegen a r)
     => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
-    symbols <- use lsSymbols
-    case bodyEither symbols of
+    funcs <- use lsFunctions
+    vars <- use lsVariables
+    case bodyEither funcs vars of
         Left e -> throwError e
         Right body -> do
             addDefn $ AST.GlobalDefinition $
@@ -459,11 +481,25 @@ addFuncDef retType funcName args suite = do
                 , G.returnType = retType
                 , G.basicBlocks = body
                 }
-            lsSymbols . at funcName .=
-                Just
-                    (AST.ConstantOperand $ C.GlobalReference retType $
-                     funcName')
+            lsFunctions . at funcName .= Just retType
   where
     funcName' = AST.Name funcName
-    bodyEither symbols = execCodegen symbols (toCodegen suite) >>= createBlocks
+    bodyEither funcs vars =
+        execCodegen funcs vars (toCodegen suite) >>= createBlocks
     parameters = ([G.Parameter t n [] | (t,n) <- args], False)
+
+addGlobalVariable
+    :: (ToConstant a)
+    => AST.Type -> String -> a -> LLVM ()
+addGlobalVariable varType varName varExpr = do
+    value <- toConstant varExpr
+    addDefn $ AST.GlobalDefinition $
+        G.globalVariableDefaults
+        { G.name = varName'
+        , G.type' = varType
+        , G.initializer = Just value
+        }
+    lsVariables . at varName .=
+        Just (AST.ConstantOperand $ C.GlobalReference varType $ varName')
+  where
+    varName' = AST.Name varName
