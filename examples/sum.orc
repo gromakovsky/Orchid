@@ -1,3 +1,3 @@
-def sum(a: int32, b: int32) → int32:
+def sum(a: int64, b: int64) → int64:
   return a + b
 
