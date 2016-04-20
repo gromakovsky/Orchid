@@ -4,7 +4,7 @@ resolver: lts-5.12
 packages:
 - '.'
 - location:
-    git: git@github.com:serokell/serokell-core.git
+    git: https://github.com/serokell/serokell-core.git
     commit: 9a822f6320bf5cdbf8056e9115e4361267f0d710
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
