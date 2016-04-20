@@ -17,7 +17,6 @@ module Orchid.Codegen
        , throwCodegenError
 
          -- Types
-       , int32
        , int64
        , bool
 
@@ -54,7 +53,6 @@ module Orchid.Codegen
        , mod
 
          -- Constants
-       , constInt32
        , constInt64
        , constBool
 
@@ -82,7 +80,7 @@ import           Control.Monad.Except               (ExceptT,
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
 import           Data.Function                      (on, (&))
-import           Data.Int                           (Int32, Int64)
+import           Data.Int                           (Int64)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
 import           Data.String                        (IsString (fromString))
@@ -94,8 +92,7 @@ import qualified LLVM.General.AST.CallingConvention as CC
 import qualified LLVM.General.AST.Constant          as C
 import qualified LLVM.General.AST.Global            as G
 import qualified LLVM.General.AST.IntegerPredicate  as IP
-import           LLVM.General.AST.Type              (Type (..), i1, i32, i64,
-                                                     void)
+import           LLVM.General.AST.Type              (Type (..), i1, i64, void)
 import           Prelude                            hiding (and, div, mod, not,
                                                      or)
 import           Serokell.Util                      (formatSingle')
@@ -155,8 +152,7 @@ throwCodegenError = throwError . CodegenException
 -- Types
 -------------------------------------------------------------------------------
 
-int32, int64, bool :: Type
-int32 = i32
+int64, bool :: Type
 int64 = i64
 bool = i1
 
@@ -261,7 +257,8 @@ instr ins = do
     let ref = AST.UnName n
     currentBlock <- getCurrentBlock
     setCurrentBlock $ currentBlock & bsStack <>~ [ref AST.:= ins]
-    return $ local int32 ref
+    -- FIXME: pass type somehow
+    return $ local int64 ref
 
 terminator :: AST.Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
 terminator trm =
@@ -388,9 +385,6 @@ mod a b = instr $ AST.SRem a b []
 -------------------------------------------------------------------------------
 -- Constants
 -------------------------------------------------------------------------------
-
-constInt32 :: Int32 -> AST.Operand
-constInt32 = AST.ConstantOperand . C.Int 32 . toInteger
 
 constInt64 :: Int64 -> AST.Operand
 constInt64 = AST.ConstantOperand . C.Int 64 . toInteger

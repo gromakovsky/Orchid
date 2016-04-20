@@ -56,7 +56,7 @@ translateToFile fp input =
 
 predefinedTypes :: M.Map OT.Identifier C.Type
 predefinedTypes =
-    M.fromList [("int32", C.int32), ("int64", C.int64), ("bool", C.bool)]
+    M.fromList [("int64", C.int64), ("bool", C.bool)]
 
 lookupType :: OT.Identifier -> C.LLVM C.Type
 lookupType t =
