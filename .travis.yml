@@ -24,6 +24,8 @@ addons:
       - llvm-3.5-dev
       - libedit-dev
       - g++-4.8
+  ssh_known_hosts: git.example.com
+
 
 # The different configurations we want to test. We have BUILD=cabal which uses
 # cabal-install, and BUILD=stack which uses Stack. More documentation on each
