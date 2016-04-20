@@ -9,7 +9,7 @@ module Orchid.Translator
        ) where
 
 import           Control.Exception       (throwIO)
-import           Control.Monad           (join, (<=<))
+import           Control.Monad           (join, unless, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT)
 import qualified Data.Map                as M
 import           Data.Monoid             ((<>))
@@ -192,7 +192,7 @@ instance C.ToCodegen OT.Atom AST.Operand where
 
 instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSIf s) = C.toCodegen s
-    toCodegen (OT.CSWhile _) = todo
+    toCodegen (OT.CSWhile s) = C.toCodegen s
     toCodegen (OT.CSFunc _) =
         C.throwCodegenError "nested functions are not supported"
 
@@ -217,6 +217,21 @@ instance C.ToCodegen OT.IfStmt () where
                 else C.br contBlock >> return False
         finalize True = C.removeBlock
         finalize False = C.setBlock
+
+instance C.ToCodegen OT.WhileStmt () where
+    toCodegen (OT.WhileStmt expr body) = do
+        condBlock <- C.addBlock "while.cond"
+        bodyBlock <- C.addBlock "while.body"
+        contBlock <- C.addBlock "while.cont"
+        () <$ C.br condBlock
+        C.setBlock condBlock
+        v <- C.toCodegen expr
+        () <$ C.cbr v bodyBlock contBlock
+        C.setBlock bodyBlock
+        C.toCodegen body
+        isTerminated <- C.isTerminated
+        unless isTerminated $ () <$ C.br condBlock
+        C.setBlock contBlock
 
 instance C.ToCodegen OT.Suite () where
     toCodegen = mapM_ C.toCodegen . OT.getSuite
