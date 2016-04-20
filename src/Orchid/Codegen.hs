@@ -26,6 +26,14 @@ module Orchid.Codegen
        , assignLocal
        , getVar
 
+         -- Block stack
+       , addBlock
+       , setBlock
+       , removeBlock
+       , getCurrentBlockName
+       , getCurrentBlock
+       , isTerminated
+
          -- References
        , local
 
@@ -62,6 +70,9 @@ module Orchid.Codegen
        , load
 
          -- Control Flow
+       , br
+       , cbr
+       , phi
        , ret
 
          -- Module level
@@ -84,9 +95,9 @@ module Orchid.Codegen
 import           Control.Applicative                ((<|>))
 import           Control.Lens                       (at, makeLenses,
                                                      makeLensesFor, use, view,
-                                                     (%=), (+=), (.=), (.~),
-                                                     (<>=), (<>~), (^.))
-import           Control.Monad                      ((>=>))
+                                                     (%=), (+=), (-=), (.=),
+                                                     (.~), (<>=), (<>~), (^.))
+import           Control.Monad                      (when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
                                                      runExceptT)
@@ -96,6 +107,7 @@ import           Data.Function                      (on, (&))
 import           Data.Int                           (Int64)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
+import           Data.Maybe                         (isJust)
 import           Data.String                        (IsString (fromString))
 import           Data.Text                          (Text)
 import           Data.Text.Buildable                (Buildable (build))
@@ -251,6 +263,12 @@ terminator :: AST.Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
 terminator trm =
     trm <$
     do currentBlock <- getCurrentBlock
+       when (isJust $ currentBlock ^. bsTerm) $
+           do n <- getCurrentBlockName
+              throwCodegenError $
+                  formatSingle'
+                      "block {} can't have more than one terminator"
+                      n
        setCurrentBlock $ currentBlock & bsTerm .~ Just trm
 
 -------------------------------------------------------------------------------
@@ -269,10 +287,16 @@ addBlock blockName = do
     csNames .= supply
     return astName
 
--- setBlock :: Name -> Codegen Name
--- setBlock bname = do
---   modify $ \s -> s { currentBlock = bname }
---   return bname
+setBlock :: AST.Name -> Codegen ()
+setBlock = (csCurrentBlock .=)
+
+removeBlock :: AST.Name -> Codegen ()
+removeBlock name = do
+    csBlocks %= M.delete name
+    csBlockCount -= 1
+
+getCurrentBlockName :: Codegen AST.Name
+getCurrentBlockName = use csCurrentBlock
 
 getCurrentBlock :: Codegen BlockState
 getCurrentBlock = do
@@ -282,6 +306,9 @@ getCurrentBlock = do
          use csCurrentBlock)
         return
         v
+
+isTerminated :: Codegen Bool
+isTerminated = isJust . view bsTerm <$> getCurrentBlock
 
 setCurrentBlock :: BlockState -> Codegen ()
 setCurrentBlock bs = do
@@ -419,11 +446,15 @@ load ptr = instr $ AST.Load False ptr Nothing 0 []
 -------------------------------------------------------------------------------
 -- Control Flow
 -------------------------------------------------------------------------------
--- br :: Name -> Codegen (Named Terminator)
--- br val = terminator $ Do $ Br val []
 
--- cbr :: Operand -> Name -> Name -> Codegen (Named Terminator)
--- cbr cond tr fl = terminator $ Do $ CondBr cond tr fl []
+br :: AST.Name -> Codegen (AST.Named AST.Terminator)
+br = terminator . AST.Do . flip AST.Br []
+
+cbr :: AST.Operand -> AST.Name -> AST.Name -> Codegen (AST.Named AST.Terminator)
+cbr cond tr fl = terminator $ AST.Do $ AST.CondBr cond tr fl []
+
+phi :: Type -> [(AST.Operand, AST.Name)] -> Codegen AST.Operand
+phi ty incoming = instr $ AST.Phi ty incoming []
 
 ret :: Maybe AST.Operand -> Codegen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []

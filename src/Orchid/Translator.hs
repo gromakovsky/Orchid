@@ -191,10 +191,32 @@ instance C.ToCodegen OT.Atom AST.Operand where
     toCodegen (OT.ABool b) = AST.ConstantOperand <$> C.toConstant b
 
 instance C.ToCodegen OT.CompoundStmt () where
-    toCodegen (OT.CSIf _) = todo
+    toCodegen (OT.CSIf s) = C.toCodegen s
     toCodegen (OT.CSWhile _) = todo
     toCodegen (OT.CSFunc _) =
         C.throwCodegenError "nested functions are not supported"
+
+instance C.ToCodegen OT.IfStmt () where
+    toCodegen (OT.IfStmt expr trueBody falseBody) = do
+        trueBlock <- C.addBlock "if.then"
+        contBlock <- C.addBlock "if.cont"
+        falseBlock <-
+            maybe (pure contBlock) (const $ C.addBlock "if.else") falseBody
+        condOperand <- C.toCodegen expr
+        () <$ C.cbr condOperand trueBlock falseBlock
+        tTerminated <- generateCaseBody contBlock trueBlock trueBody
+        fTerminated <- maybe (pure False) (generateCaseBody contBlock falseBlock) falseBody
+        finalize (tTerminated && fTerminated) contBlock
+      where
+        generateCaseBody contBlock blockName blockBody = do
+            C.setBlock blockName
+            () <$ C.toCodegen blockBody
+            isTerminated <- C.isTerminated
+            if isTerminated
+                then return True
+                else C.br contBlock >> return False
+        finalize True = C.removeBlock
+        finalize False = C.setBlock
 
 instance C.ToCodegen OT.Suite () where
     toCodegen = mapM_ C.toCodegen . OT.getSuite
