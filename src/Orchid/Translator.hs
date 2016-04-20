@@ -171,10 +171,9 @@ instance ToCodegen OT.Expr AST.Operand where
         convertBinOp OT.BinMult = C.mul
         convertBinOp OT.BinDiv = C.div
         convertBinOp OT.BinMod = C.mod
-        -- power is a standard function from prelude
         convertBinOp OT.BinPower =
             \a' b' ->
-                 do f <- toCodegen (OT.AIdentifier "power")
+                 do f <- toCodegen (OT.AIdentifier "stdPower")
                     C.call f [a', b']
     toCodegen (OT.EAtom a) = toCodegen a
 

@@ -35,7 +35,7 @@ type Number = Int64
 -- file_input → (NEWLINE | stmt)*
 newtype Input = Input
     { getInput :: [Stmt]
-    } deriving (Show, Eq)
+    } deriving (Show, Eq, Monoid)
 
 -- | Statement is either simple statement or compound statement.
 -- stmt → simple_stmt | compound_stmt

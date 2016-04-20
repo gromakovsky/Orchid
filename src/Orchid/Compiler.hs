@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | Compiler wraps parser, translator and other stuff into one
 -- module.
 
@@ -7,8 +9,11 @@ module Orchid.Compiler
        , compile
        ) where
 
+import           Data.FileEmbed    (embedStringFile)
+import           Data.String       (IsString)
+
 import           Orchid.Lexer      (tokenizeInputFile)
-import           Orchid.Parser     (parseInputFile)
+import           Orchid.Parser     (parseInput, parseInputFile)
 import           Orchid.Token      (Token)
 import           Orchid.Translator (translateToFile)
 import           Orchid.Types      (Input)
@@ -25,10 +30,20 @@ data CompilerExtra = CompilerExtra
     , ceTree   :: Maybe Input
     } deriving (Show)
 
+orchidPreludeStr
+    :: IsString s
+    => s
+orchidPreludeStr = $(embedStringFile "src/prelude.orc")
+
+orchidPrelude :: Input
+orchidPrelude =
+    either (error "Fatal error: failed to parse prelude") id $
+    parseInput "prelude" orchidPreludeStr
+
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do
     input <- parseInputFile coInputFile
-    translateToFile coOutputFile input
+    translateToFile coOutputFile $ mconcat [orchidPrelude, input]
     ceTokens <-
         if coReturnTokens
             then Just <$> tokenizeInputFile coInputFile

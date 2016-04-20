@@ -19,6 +19,7 @@ library
   other-modules:       Orchid.ParsecToken
   build-depends:       base >= 4.8
                      , containers
+                     , file-embed
                      , lens
                      , llvm-general
                      , llvm-general-pure
