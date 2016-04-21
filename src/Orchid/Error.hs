@@ -7,7 +7,8 @@ module Orchid.Error
        , ParserException (..)
        , CodegenException (..)
        , LowLevelException (..)
-       )where
+       , FatalError (..)
+       ) where
 
 import           Control.Exception (Exception (fromException, toException, displayException),
                                     SomeException)
@@ -59,3 +60,11 @@ instance Exception LowLevelException where
     toException = orchidExceptionToException
     fromException = orchidExceptionFromException
     displayException (LowLevelException e) = unpack e
+
+data FatalError =
+    FatalError Text
+    deriving (Show,Typeable)
+
+instance Exception FatalError where
+    toException = orchidExceptionToException
+    fromException = orchidExceptionFromException

@@ -82,7 +82,7 @@ module Orchid.Codegen
        , ToLLVM
        , toLLVM
        , execLLVM
-       , emptyLLVM
+       , mkLLVM
        , addDefn
        , addFuncDef
        , addGlobalVariable
@@ -495,11 +495,14 @@ execLLVM m = f . flip runState m . runExceptT . getLLVM
     f (Left e,_) = Left e
     f (_,s') = Right $ s' ^. lsModule
 
-emptyLLVM :: String -> LlvmState
-emptyLLVM label =
-    LlvmState M.empty M.empty $
-    AST.defaultModule
-    { AST.moduleName = label
+mkLLVM :: String -> AST.Module -> Functions -> SymbolTable -> LlvmState
+mkLLVM moduleName preludeModule preludeFunctions preludeVariables =
+    LlvmState
+    { _lsFunctions = preludeFunctions
+    , _lsVariables = preludeVariables
+    , _lsModule = preludeModule
+      { AST.moduleName = moduleName
+      }
     }
 
 addDefn :: AST.Definition -> LLVM ()

@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 
 -- | Translator transforms AST into LLVM representation.
@@ -12,8 +13,10 @@ module Orchid.Translator
 import           Control.Exception       (throwIO)
 import           Control.Monad           (join, unless, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT)
+import           Data.FileEmbed          (embedStringFile)
 import qualified Data.Map                as M
 import           Data.Monoid             ((<>))
+import           Data.String             (IsString)
 import           Data.String.Conversions (convertString)
 import qualified LLVM.General            as G
 import qualified LLVM.General.AST        as AST
@@ -21,7 +24,9 @@ import           LLVM.General.Context    (withContext)
 import           Serokell.Util           (formatSingle')
 
 import qualified Orchid.Codegen          as C
-import           Orchid.Error            (LowLevelException (LowLevelException))
+import           Orchid.Error            (CodegenException,
+                                          FatalError (FatalError),
+                                          LowLevelException (LowLevelException))
 import qualified Orchid.Types            as OT
 
 type ModuleName = String
@@ -30,30 +35,60 @@ type ModuleName = String
 -- Exported
 --------------------------------------------------------------------------------
 
-handleError :: ExceptT String IO a -> IO a
-handleError =
-    either (throwIO . LowLevelException . convertString) return <=< runExceptT
+translatePure :: ModuleName
+              -> AST.Module
+              -> OT.Input
+              -> Either CodegenException AST.Module
+translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
+  where
+    initialState =
+        C.mkLLVM mName preludeModule preludeFunctions preludeVariables
+    preludeFunctions =
+        M.fromList [("stdReadInt", C.int64), ("stdWriteInt", C.void)]
+    preludeVariables = M.empty
 
 translate :: ModuleName -> OT.Input -> (G.Module -> IO a) -> IO a
 translate mName inp continuation =
     withContext $
     \context ->
-         either
-             throwIO
-             (\m ->
-                   handleError $ G.withModuleFromAST context m continuation)
-             mFinalEither
+         handleFatalError $
+         G.withModuleFromLLVMAssembly
+             context
+             (orchidNativePreludeStr :: String) $
+         \preludeModuleImpure ->
+              do preludeModulePure <- G.moduleAST preludeModuleImpure
+                 either throwIO (translateFinish context) $
+                     mFinalEither preludeModulePure
   where
-    initialState = C.emptyLLVM mName
-    mFinalEither = C.execLLVM initialState $ C.toLLVM inp
+    mFinalEither preludeModule = translatePure mName preludeModule inp
+    translateFinish context m =
+        handleError $ G.withModuleFromAST context m continuation
 
 translateToFile :: FilePath -> OT.Input -> IO ()
 translateToFile fp input =
     translate fp input (handleError . G.writeLLVMAssemblyToFile (G.File fp))
 
 --------------------------------------------------------------------------------
+-- External
+--------------------------------------------------------------------------------
+
+orchidNativePreludeStr
+    :: IsString s
+    => s
+orchidNativePreludeStr = $(embedStringFile "src/native-prelude.ll")
+
+--------------------------------------------------------------------------------
 -- Utilities
 --------------------------------------------------------------------------------
+
+handleError :: ExceptT String IO a -> IO a
+handleError =
+    either (throwIO . LowLevelException . convertString) return <=< runExceptT
+
+handleFatalError :: Show e => ExceptT e IO a -> IO a
+handleFatalError =
+    either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
+    runExceptT
 
 predefinedTypes :: M.Map OT.Identifier C.Type
 predefinedTypes =
