@@ -12,7 +12,7 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 - [x] `pass` statement
 - [x] functions
 - [x] comments
-- [ ] primitive IO
+- [x] simple IO with basic error handling
 - [ ] user-defined classes
 
 ## Syntax
@@ -29,7 +29,7 @@ Compound statements use indentation to group sequence of statements into blocks.
 
 ### Function definition
 
-Function definition starts with `def` keyword followed by function name, argument list, optional return type and `:` symbol. The next lines contain indented block with function's body. Argument list is enclosed in parenthesis and contains (possible empty) list of typed arguments delimited by `comma`. Trailing comma is permitted. Typed argument has a form `name : type`. Return type is separated by `→` (U+2192) character and represented as identifier. Function body is a sequence of statements. Nested function definitions are accepted by parser, but are prohibited in this version (the error is raised in such cases). 
+Function definition starts with `def` keyword followed by function name, argument list, optional return type and `:` symbol. The next lines contain indented block with function's body. Argument list is enclosed in parenthesis and contains (possible empty) list of typed arguments delimited by `comma`. Trailing comma is permitted. Typed argument has a form `name : type`. Return type is separated by `→` (U+2192) character and represented as identifier. Function body is a sequence of statements. Nested function definitions are accepted by parser, but are prohibited in this version (the error is raised in such cases). Function names starting with `__` are reserved for internal usage by standard library.
 
 Example:
 
@@ -114,7 +114,20 @@ else:
 
 ## Semantics
 
-**TODO**
+**TODO** Most of semantics is absolutely intuitive, but still has to be described here.
+
+## Standard library
+
+All functions in standard library start with `std` prefix. Standard library contains the following functions:
+
+- `stdExit(int64)`
+- `stdReadInt() → int64`
+- `stdReadBool() → bool`
+- `stdWriteInt(int64)`
+- `stdWriteBool(bool)`
+- `stdPower(int64, in64)`
+
+**TODO** Describe functions.
 
 ## Examples
 
