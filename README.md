@@ -155,3 +155,4 @@ If you want to run tests use `stack test Orchid` command.
 ## Known bugs
 
 -- return is required even if function returns void
+-- there is almost no checks ☹
