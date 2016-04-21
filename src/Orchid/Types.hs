@@ -140,16 +140,19 @@ data BinaryOp
     | BinPower
     deriving (Show, Eq)
 
--- | Atom expression is either Atom or function call.
--- atom_expr → atom [trailer]
--- trailer → '(' [arglist] ')'
+-- | Atom expression is either Atom or function call or access to class field.
+-- atom_expr → atom trailer*
+-- atom → '(' expr ')' | NAME | NUMBER | 'True' | 'False'
+-- trailer → '(' [arglist] ')' | '.' NAME
 -- arglist → argument (',' argument)* [',']
 -- argument → expr
 data AtomExpr
     = AEAtom !Atom
-    | AECall !Atom
+    | AECall !AtomExpr
              ![Expr]
-    deriving (Show, Eq)
+    | AEAccess !AtomExpr
+               !Identifier
+    deriving (Show,Eq)
 
 -- | Atom is either an expression or identifier or number or boolean
 -- constant.

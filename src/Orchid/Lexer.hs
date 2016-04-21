@@ -34,6 +34,7 @@ module Orchid.Lexer
        , rparenL
        , numberL
        , boolL
+       , dotL
        , commaL
        , ifL
        , elseL
@@ -107,14 +108,18 @@ anyL =
     , numberL
     , boolL
     , commaL
+    , dotL
     , ifL
     , elseL
     , whileL
     , defL
+    , classL
     , colonL
     , arrowL
     , indentL
-    , dedentL]
+    , dedentL
+    , privateL
+    , publicL]
 
 firstToken :: P.SourceName -> Text -> Either P.ParseError Token
 firstToken = P.runParser anyL lexerState
@@ -260,6 +265,9 @@ boolL =
     verifyNoExtra >>
     (TokBool True <$ Tok.reserved lexerGen "True" <|>
      TokBool False <$ Tok.reserved lexerGen "False")
+
+dotL :: Lexer
+dotL = parseSymbol "." TokDot
 
 commaL :: Lexer
 commaL = parseSymbol "," TokComma

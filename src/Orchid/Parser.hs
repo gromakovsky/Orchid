@@ -6,6 +6,7 @@ module Orchid.Parser
        ) where
 
 import           Control.Exception (throwIO)
+import           Data.Function     ((&))
 import           Data.Maybe        (catMaybes, fromMaybe)
 import           Data.Text         (Text)
 import qualified Data.Text.IO      as TIO
@@ -16,7 +17,7 @@ import           Text.Parsec.Text  (GenParser)
 
 import           Orchid.Error      (ParserException (ParserException))
 import           Orchid.Lexer      (LexerState, andL, arrowL, assignL, boolL,
-                                    classL, colonL, commaL, dedentL, defL,
+                                    classL, colonL, commaL, dedentL, defL, dotL,
                                     doubleStarL, elseL, equalL, geL, gtL, ifL,
                                     indentL, leL, lexerState, lparenL, ltL,
                                     minusL, nameL, neL, newlineL, notL, numberL,
@@ -116,12 +117,19 @@ parseExpr = E.buildExpressionParser table parseEAtom
         , [binary orL OT.BinOr l]]
     parseEAtom = OT.EAtom <$> parseAtomExpr
 
+type Trailer = OT.AtomExpr -> OT.AtomExpr
+
 parseAtomExpr :: Parser OT.AtomExpr
 parseAtomExpr = do
-    a <- parseAtom
-    maybe (OT.AEAtom a) (OT.AECall a) <$> P.optionMaybe (P.try parseTrailer)
+    a <- OT.AEAtom <$> parseAtom
+    trailers <- P.many $ P.try parseTrailer
+    return $ foldl (&) a trailers
   where
-    parseTrailer = P.between lparenL rparenL parseOptionalArgList
+    parseTrailer :: Parser Trailer
+    parseTrailer =
+        P.choice
+            [ flip OT.AECall <$> P.between lparenL rparenL parseOptionalArgList
+            , flip OT.AEAccess <$> (dotL >> parseName)]
     parseOptionalArgList =
         fromMaybe [] <$> (P.optionMaybe . P.try $ parseArgList)
     parseArgList = do

@@ -36,7 +36,7 @@ validRes2 = [T.SCompound $ T.CSIf $ T.IfStmt aExpr trueSuite (Just falseSuite)]
     aExpr = T.EAtom $ T.AEAtom $ T.AIdentifier "a"
     trueSuite = T.Suite [T.SSimple $ T.SimpleStmt [T.SSExpr trueExprStmt]]
     trueExprStmt = T.ExprStmt (Just "t") trueExpr
-    trueExpr = T.EAtom $ T.AECall (T.AIdentifier "print") [printArg]
+    trueExpr = T.EAtom $ T.AECall (T.AEAtom $ T.AIdentifier "print") [printArg]
     printArg = T.EAtom $ T.AEAtom $ T.AIdentifier "b"
     falseSuite = T.Suite [T.SSimple $ T.SimpleStmt [T.SSDecl falseDeclStmt]]
     falseDeclStmt = T.DeclStmt "bool" "t" falseExpr
@@ -73,8 +73,18 @@ validRes3 = [T.SCompound $ T.CSClass classDef]
             [T.SSimple $ T.SimpleStmt [T.SSExpr $ T.ExprStmt Nothing magicExpr]]
     magicExpr =
         T.EAtom $
-        T.AECall (T.AIdentifier "magic") $
+        T.AECall (T.AEAtom $ T.AIdentifier "magic") $
         [identifierExpr "x", identifierExpr "y"]
+
+validInput4 :: Text
+validInput4 = "a = p.print()\n"
+
+validRes4 :: [T.Stmt]
+validRes4 = [T.SSimple $ T.SimpleStmt [T.SSExpr exprStmt]]
+  where
+    exprStmt = T.ExprStmt (Just "a") printExpr
+    printExpr = T.EAtom $ T.AECall f []
+    f = T.AEAccess (T.AEAtom $ T.AIdentifier "p") "print"
 
 spec :: Spec
 spec =
@@ -91,7 +101,8 @@ spec =
     validInputs =
         [ (validInput1, validRes1)
         , (validInput2, validRes2)
-        , (validInput3, validRes3)]
+        , (validInput3, validRes3)
+        , (validInput4, validRes4)]
     invalidInputs = [invalid1, invalid2]
     invalid1 = "def f():\n  pass\n pass"
     invalid2 = "1 + / 2"

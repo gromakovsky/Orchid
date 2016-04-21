@@ -35,6 +35,7 @@ data Token
     | TokRParen
     | TokNumber { getTokNumber :: !Number}
     | TokBool { getTokBool :: !Bool}
+    | TokDot
     | TokComma
     | TokIf
     | TokElse
@@ -75,6 +76,7 @@ tokenRepr TokLParen = "("
 tokenRepr TokRParen = ")"
 tokenRepr (TokNumber n) = pack $ show n
 tokenRepr (TokBool b) = pack $ show b
+tokenRepr TokDot = "."
 tokenRepr TokComma = ","
 tokenRepr TokIf = "if"
 tokenRepr TokElse = "else"
