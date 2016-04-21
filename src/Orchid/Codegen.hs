@@ -94,7 +94,7 @@ import           Control.Lens                       (at, makeLenses,
                                                      makeLensesFor, use, view,
                                                      (%=), (+=), (.=), (.~),
                                                      (<>=), (<>~), (^.))
-import           Control.Monad                      (when, (>=>))
+import           Control.Monad                      (unless, when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
                                                      runExceptT)
@@ -297,13 +297,8 @@ terminator :: Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
 terminator trm =
     trm <$
     do currentBlock <- getCurrentBlock
-       when (isJust $ currentBlock ^. bsTerm) $
-           do n <- getCurrentBlockName
-              throwCodegenError $
-                  formatSingle'
-                      "block {} can't have more than one terminator"
-                      n
-       setCurrentBlock $ currentBlock & bsTerm .~ Just trm
+       unless (isJust $ currentBlock ^. bsTerm) $
+           setCurrentBlock $ currentBlock & bsTerm .~ Just trm
 
 -------------------------------------------------------------------------------
 -- Codegen blocks
