@@ -39,10 +39,13 @@ module Orchid.Lexer
        , elseL
        , whileL
        , defL
+       , classL
        , colonL
        , arrowL
        , indentL
        , dedentL
+       , privateL
+       , publicL
        ) where
 
 import           Control.Exception    (throwIO)
@@ -140,6 +143,9 @@ lexerGen = Tok.makeTokenParser style
         , Tok.reservedNames = [ "pass"
                               , "return"
                               , "def"
+                              , "class"
+                              , "private"
+                              , "public"
                               , "True"
                               , "False"
                               , "if"
@@ -270,6 +276,9 @@ whileL = parseReserved "while" TokWhile
 defL :: Lexer
 defL = parseReserved "def" TokDef
 
+classL :: Lexer
+classL = parseReserved "class" TokClass
+
 colonL :: Lexer
 colonL = parseSymbol ":" TokColon
 
@@ -281,6 +290,16 @@ indentL = readExtraToken TokIndent
 
 dedentL :: Lexer
 dedentL = readExtraToken TokDedent
+
+privateL :: Lexer
+privateL = parseReserved "private" TokPrivate
+
+publicL :: Lexer
+publicL = parseReserved "public" TokPublic
+
+-------------------------------------------------------------------------------
+-- Internals
+-------------------------------------------------------------------------------
 
 processNewIndent :: Word -> Word -> Parser ()
 processNewIndent topIndent newIndent

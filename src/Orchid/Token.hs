@@ -40,10 +40,13 @@ data Token
     | TokElse
     | TokWhile
     | TokDef
+    | TokClass
     | TokColon
     | TokArrow
     | TokIndent
     | TokDedent
+    | TokPublic
+    | TokPrivate
     deriving (Show,Eq)
 
 tokenRepr :: Token -> Text
@@ -77,7 +80,10 @@ tokenRepr TokIf = "if"
 tokenRepr TokElse = "else"
 tokenRepr TokWhile = "while"
 tokenRepr TokDef = "def"
+tokenRepr TokClass = "class"
 tokenRepr TokColon = ":"
 tokenRepr TokArrow = "→"
 tokenRepr TokIndent = "<INDENT>"
 tokenRepr TokDedent = "<DEDENT>"
+tokenRepr TokPublic = "public"
+tokenRepr TokPrivate = "private"

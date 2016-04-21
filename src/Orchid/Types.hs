@@ -20,8 +20,12 @@ module Orchid.Types
        , IfStmt (..)
        , WhileStmt (..)
        , FuncDef (..)
+       , ClassDef (..)
        , TypedArgument (..)
        , Suite (..)
+       , ClassSuite (..)
+       , ClassStmt (..)
+       , AccessModifier (..)
        ) where
 
 import           Data.Int  (Int64)
@@ -159,11 +163,12 @@ data Atom
 
 -- | Compound statement is either if statement or while statement or
 -- function definition.
--- compound_stmt → if_stmt | while_stmt | funcdef
+-- compound_stmt → if_stmt | while_stmt | funcdef | classdef
 data CompoundStmt
     = CSIf !IfStmt
     | CSWhile !WhileStmt
     | CSFunc !FuncDef
+    | CSClass !ClassDef
     deriving (Show, Eq)
 
 -- | If statement contains condition expression, suite to execute in
@@ -194,6 +199,15 @@ data FuncDef = FuncDef
     , funcBody :: !Suite
     } deriving (Show, Eq)
 
+-- | Class definition contains class name, optional parent in
+-- inheritence hierarchy and body suite.
+-- classdef → 'class' NAME ['(' NAME ')'] ':' class_suite
+data ClassDef = ClassDef
+    { clsName   :: !Identifier
+    , clsParent :: !(Maybe Identifier)
+    , clsBody   :: !ClassSuite
+    } deriving (Show,Eq)
+
 -- | Type argument consists of name and type.
 -- typedarg → NAME ':' NAME
 data TypedArgument = TypedArgument
@@ -206,3 +220,25 @@ data TypedArgument = TypedArgument
 newtype Suite = Suite
     { getSuite :: [Stmt]
     } deriving (Show, Eq)
+
+-- | Class suite is basically a list of class statements.
+-- class_suite → NEWLINE INDENT class_stmt+ DEDENT
+newtype ClassSuite = ClassSuite
+    { getClassSuite :: [ClassStmt]
+    } deriving (Show, Eq)
+
+-- | Class statement is either function defition or variable
+-- declaration prefixed with access modifier
+-- class_stmt → access_modifier (funcdef | decl_stmt NEWLINE)
+data ClassStmt = ClassStmt
+    { csAccess  :: !AccessModifier
+    , csPayload :: !(Either FuncDef DeclStmt)
+    } deriving (Show, Eq)
+
+-- | Access modifier determines how has access to function/variable in
+-- class. It is either `private` or `public`.
+-- access_modifier → 'private' | 'public'
+data AccessModifier
+    = AMPrivate
+    | AMPublic
+    deriving (Show,Eq)

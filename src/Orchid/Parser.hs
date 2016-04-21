@@ -16,12 +16,13 @@ import           Text.Parsec.Text  (GenParser)
 
 import           Orchid.Error      (ParserException (ParserException))
 import           Orchid.Lexer      (LexerState, andL, arrowL, assignL, boolL,
-                                    colonL, commaL, dedentL, defL, doubleStarL,
-                                    elseL, equalL, geL, gtL, ifL, indentL, leL,
-                                    lexerState, lparenL, ltL, minusL, nameL,
-                                    neL, newlineL, notL, numberL, orL, passL,
-                                    percentL, plusL, returnL, rparenL,
-                                    semicolonL, slashL, starL, whileL)
+                                    classL, colonL, commaL, dedentL, defL,
+                                    doubleStarL, elseL, equalL, geL, gtL, ifL,
+                                    indentL, leL, lexerState, lparenL, ltL,
+                                    minusL, nameL, neL, newlineL, notL, numberL,
+                                    orL, passL, percentL, plusL, privateL,
+                                    publicL, returnL, rparenL, semicolonL,
+                                    slashL, starL, whileL)
 import qualified Orchid.Token      as Tok
 import qualified Orchid.Types      as OT
 
@@ -141,7 +142,8 @@ parseCompoundStmt =
     P.choice
         [ OT.CSIf <$> parseIf
         , OT.CSWhile <$> parseWhile
-        , OT.CSFunc <$> parseFuncDef]
+        , OT.CSFunc <$> parseFuncDef
+        , OT.CSClass <$> parseClassDef]
 
 parseIf :: Parser OT.IfStmt
 parseIf =
@@ -165,6 +167,13 @@ parseFuncDef =
         as <- P.many . P.try $ commaL >> parseTypedArgument
         a : as <$ P.optional commaL
 
+parseClassDef :: Parser OT.ClassDef
+parseClassDef =
+    OT.ClassDef <$> (classL >> parseName) <*> parseOptionalParent <*>
+    (colonL >> parseClassSuite)
+  where
+    parseOptionalParent = P.optionMaybe $ P.between lparenL rparenL parseName
+
 parseTypedArgument :: Parser OT.TypedArgument
 parseTypedArgument = OT.TypedArgument <$> parseName <*> (colonL >> parseName)
 
@@ -173,3 +182,20 @@ parseSuite =
     P.choice
         [ OT.Suite . replicate 1 . OT.SSimple <$> parseSimpleStmt
         , OT.Suite <$> (newlineL >> indentL >> P.many1 parseStmt <* dedentL)]
+
+parseClassSuite :: Parser OT.ClassSuite
+parseClassSuite =
+    OT.ClassSuite <$>
+    (newlineL >> indentL >> P.many1 parseClassStmt <* dedentL)
+
+parseClassStmt :: Parser OT.ClassStmt
+parseClassStmt = OT.ClassStmt <$> parseAccessModifier <*> parsePayload
+  where
+    parsePayload =
+        P.choice
+            [ P.try $ Left <$> parseFuncDef
+            , Right <$> (parseDeclStmt <* newlineL)]
+
+parseAccessModifier :: Parser OT.AccessModifier
+parseAccessModifier =
+    P.choice [P.try $ OT.AMPrivate <$ privateL, OT.AMPublic <$ publicL]

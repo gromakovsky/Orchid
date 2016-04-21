@@ -24,11 +24,15 @@ trailer → '(' [arglist] ')'
 arglist → argument (',' argument)* [',']
 argument → expr
 
-compound_stmt → if_stmt | while_stmt | funcdef
+compound_stmt → if_stmt | while_stmt | funcdef | classdef
 if_stmt → 'if' expr ':' suite ['else' ':' suite]
 while_stmt → 'while' expr ':' suite
 funcdef → 'def' NAME parameters ['→' NAME] ':' suite
+classdef → 'class' NAME ['(' NAME ')'] ':' class_suite
 parameters → '(' [typedarglist] ')'
 typedarglist → typedarg (',' typedarg)* [',']
 typedarg → NAME ':' NAME
 suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
+class_suite → NEWLINE INDENT class_stmt+ DEDENT
+class_stmt → access_modifier (funcdef | decl_stmt NEWLINE)
+access_modifier → 'private' | 'public'

@@ -12,6 +12,9 @@ import           Test.Hspec    (Spec, describe, it, shouldBe, shouldSatisfy)
 import           Orchid.Parser (parseInput)
 import qualified Orchid.Types  as T
 
+identifierExpr :: T.Identifier -> T.Expr
+identifierExpr = T.EAtom . T.AEAtom . T.AIdentifier
+
 validInput1 :: Text
 validInput1 = "1 + 2 * 3\n"
 
@@ -39,6 +42,40 @@ validRes2 = [T.SCompound $ T.CSIf $ T.IfStmt aExpr trueSuite (Just falseSuite)]
     falseDeclStmt = T.DeclStmt "bool" "t" falseExpr
     falseExpr = T.EAtom $ T.AEAtom $ T.AIdentifier "a"
 
+validInput3 :: Text
+validInput3 =
+    unlines
+        [ "class Point:"
+        , "  public int64 x = 0"
+        , "  public int64 y = 0"
+        , "  public def print():"
+        , "    magic(x, y,)"]
+
+validRes3 :: [T.Stmt]
+validRes3 = [T.SCompound $ T.CSClass classDef]
+  where
+    classDef =
+        T.ClassDef
+        { clsName = "Point"
+        , clsParent = Nothing
+        , clsBody = T.ClassSuite classBody
+        }
+    classBody = [xDeclS, yDeclS, printDeclS]
+    xDeclS = T.ClassStmt T.AMPublic $ Right xDecl
+    xDecl = T.DeclStmt "int64" "x" zeroExpr
+    yDeclS = T.ClassStmt T.AMPublic $ Right yDecl
+    yDecl = T.DeclStmt "int64" "y" zeroExpr
+    zeroExpr = T.EAtom $ T.AEAtom $ T.ANumber 0
+    printDeclS = T.ClassStmt T.AMPublic $ Left printDecl
+    printDecl =
+        T.FuncDef "print" [] Nothing $
+        T.Suite
+            [T.SSimple $ T.SimpleStmt [T.SSExpr $ T.ExprStmt Nothing magicExpr]]
+    magicExpr =
+        T.EAtom $
+        T.AECall (T.AIdentifier "magic") $
+        [identifierExpr "x", identifierExpr "y"]
+
 spec :: Spec
 spec =
     describe "Parser" $ do
@@ -51,7 +88,10 @@ spec =
     sourceName = "test-suite"
     parse = parseInput sourceName
     checkValid (inp, expected) = parse inp `shouldBe` Right (T.Input expected)
-    validInputs = [(validInput1, validRes1), (validInput2, validRes2)]
+    validInputs =
+        [ (validInput1, validRes1)
+        , (validInput2, validRes2)
+        , (validInput3, validRes3)]
     invalidInputs = [invalid1, invalid2]
     invalid1 = "def f():\n  pass\n pass"
     invalid2 = "1 + / 2"
