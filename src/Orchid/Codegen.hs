@@ -23,8 +23,8 @@ module Orchid.Codegen
        , execCodegen
 
          -- Symbol table
-       , assignVar
-       , getVar
+       , addVariable
+       , getValue
        , getPtr
 
          -- Block stack
@@ -34,9 +34,6 @@ module Orchid.Codegen
        , getCurrentBlockName
        , getCurrentBlock
        , isTerminated
-
-         -- References
-       , local
 
          -- Unary operators
        , neg
@@ -77,13 +74,12 @@ module Orchid.Codegen
        , ret
 
          -- Module level
-       , LlvmState
+       , ModuleState
        , LLVM
        , ToLLVM
        , toLLVM
        , execLLVM
-       , mkLLVM
-       , addDefn
+       , mkModuleState
        , addFuncDef
        , addGlobalVariable
 
@@ -96,8 +92,8 @@ module Orchid.Codegen
 import           Control.Applicative                ((<|>))
 import           Control.Lens                       (at, makeLenses,
                                                      makeLensesFor, use, view,
-                                                     (%=), (+=), (-=), (.=),
-                                                     (.~), (<>=), (<>~), (^.))
+                                                     (%=), (+=), (.=), (.~),
+                                                     (<>=), (<>~), (^.))
 import           Control.Monad                      (when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
@@ -134,18 +130,6 @@ throwCodegenError
     => Text -> m a
 throwCodegenError = throwError . CodegenException
 
--------------------------------------------------------------------------------
--- Types
--------------------------------------------------------------------------------
-
-int64, bool :: Type
-int64 = i64
-bool = i1
-
--------------------------------------------------------------------------------
--- Names
--------------------------------------------------------------------------------
-
 type Names = M.Map String Int
 
 uniqueName :: String -> Names -> (String, Names)
@@ -158,42 +142,84 @@ instance IsString AST.Name where
     fromString = AST.Name . fromString
 
 instance Buildable AST.Name where
-  build (AST.Name a) = build a
-  build (AST.UnName a) = build a
+    build (AST.Name a) = build a
+    build (AST.UnName a) = build a
+
+type Named = AST.Named
+
+-------------------------------------------------------------------------------
+-- Types
+-------------------------------------------------------------------------------
+
+int64, bool :: Type
+int64 = i64
+bool = i1
 
 -------------------------------------------------------------------------------
 -- Codegen State
 -------------------------------------------------------------------------------
 
+-- | BlockState corresponds to LLVM's BasicBlock. It is constructed
+-- step-by-step.
 data BlockState = BlockState
-    { _bsIdx   :: Int                            -- Block index
-    , _bsStack :: [AST.Named AST.Instruction]            -- Stack of instructions
-    , _bsTerm  :: Maybe (AST.Named AST.Terminator)       -- Block terminator
+    {
+      -- ^ Block has an index which helps to sort blocks after they
+      -- are constructed.
+      _bsIdx          :: Word
+    ,
+      -- ^ Block contains ordered list of instructions which is
+      -- initially empty and is populated step-by-step.
+      _bsInstructions :: [Named AST.Instruction]
+    ,
+      -- ^ Block must contain a terminator. This field is optional,
+      -- because block is constructed using iterative process.
+      _bsTerm         :: Maybe (Named AST.Terminator)
     } deriving (Show)
 
 $(makeLenses ''BlockState)
 
 type BlockMap = M.Map AST.Name BlockState
-type SymbolTable = M.Map String AST.Operand
-type Functions = M.Map String Type
 
+-- | FIXME: add type
+type VariableData = AST.Operand
+type VariablesMap = M.Map String VariableData
+
+-- | FIXME: add argument types
+type FunctionData = Type
+type FunctionsMap = M.Map String FunctionData
+
+-- | CodegenState represents all the state used by function body
+-- generator.
 data CodegenState = CodegenState
-    { _csCurrentBlock :: AST.Name     -- ^ Name of the active block to append to
-    , _csBlocks       :: BlockMap     -- ^ Blocks for function
-    , _csFunctions    :: Functions    -- ^ Global functions
-    , _csVariables    :: SymbolTable  -- ^ Local and global variables
-                                      -- (map from name to address)
-    , _csBlockCount   :: Int          -- ^ Count of basic blocks
-    , _csCount        :: Word         -- ^ Count of unnamed instructions
-    , _csNames        :: Names        -- ^ Name Supply
+    {
+      -- ^ Name of the active block to append to.
+      _csCurrentBlock :: AST.Name
+    ,
+      -- ^ Blocks within a function body.
+      _csBlocks       :: BlockMap
+    ,
+      -- ^ Global functions.
+      _csFunctions    :: FunctionsMap
+    ,
+      -- ^ Map from global/local variable name to it's address.
+      _csVariables    :: VariablesMap
+    ,
+      -- ^ Count of unnamed identifiers.
+      _csCount        :: Word
+    ,
+      -- ^ This map is used to generated unique names for blocks.
+      _csNames        :: Names
     } deriving (Show)
 
 $(makeLenses ''CodegenState)
 
 -------------------------------------------------------------------------------
--- Codegen Operations
+-- Codegen
 -------------------------------------------------------------------------------
 
+-- | Codegen is a Monad intended to be used for code generation within
+-- a single top-level unit like function which is basically a sequence
+-- of basic blocks.
 newtype Codegen a = Codegen
     { getCodegen :: ExceptT CodegenException (State CodegenState) a
     } deriving (Functor,Applicative,Monad,MonadState CodegenState,MonadError CodegenException)
@@ -203,6 +229,10 @@ class ToCodegen a r | a -> r where
 
 instance ToCodegen (Codegen a) a where
     toCodegen = id
+
+-------------------------------------------------------------------------------
+-- Codegen execution
+-------------------------------------------------------------------------------
 
 sortBlocks :: [(AST.Name, BlockState)] -> [(AST.Name, BlockState)]
 sortBlocks = sortBy (compare `on` (view bsIdx . snd))
@@ -221,10 +251,10 @@ makeBlock (l,(BlockState _ s t)) = G.BasicBlock l s <$> makeTerm t
 entryBlockName :: IsString s => s
 entryBlockName = "entry"
 
-emptyBlock :: Int -> BlockState
+emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-emptyCodegen :: Functions -> SymbolTable -> CodegenState
+emptyCodegen :: FunctionsMap -> VariablesMap -> CodegenState
 emptyCodegen functions symbols =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
@@ -232,13 +262,12 @@ emptyCodegen functions symbols =
     , _csBlocks = M.empty
     , _csFunctions = functions
     , _csVariables = symbols
-    , _csBlockCount = 0
     , _csCount = 0
     , _csNames = M.empty
     }
 
-execCodegen :: Functions
-            -> SymbolTable
+execCodegen :: FunctionsMap
+            -> VariablesMap
             -> Codegen a
             -> Either CodegenException CodegenState
 execCodegen functions symbols = f . flip runState initial . runExceptT . getCodegen
@@ -247,21 +276,24 @@ execCodegen functions symbols = f . flip runState initial . runExceptT . getCode
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
-fresh :: Codegen Word
-fresh = do
+-------------------------------------------------------------------------------
+-- Basic codegen operations
+-------------------------------------------------------------------------------
+
+genUnnamed :: Codegen AST.Name
+genUnnamed = do
     csCount += 1
-    use csCount
+    AST.UnName <$> use csCount
 
 instr :: AST.Instruction -> Codegen AST.Operand
 instr ins = do
-    n <- fresh
-    let ref = AST.UnName n
+    name <- genUnnamed
     currentBlock <- getCurrentBlock
-    setCurrentBlock $ currentBlock & bsStack <>~ [ref AST.:= ins]
+    setCurrentBlock $ currentBlock & bsInstructions <>~ [name AST.:= ins]
     -- FIXME: pass type somehow
-    return $ local int64 ref
+    return $ AST.LocalReference int64 name
 
-terminator :: AST.Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
+terminator :: Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
 terminator trm =
     trm <$
     do currentBlock <- getCurrentBlock
@@ -274,28 +306,27 @@ terminator trm =
        setCurrentBlock $ currentBlock & bsTerm .~ Just trm
 
 -------------------------------------------------------------------------------
--- Block Stack
+-- Codegen blocks
 -------------------------------------------------------------------------------
 
 addBlock :: String -> Codegen AST.Name
 addBlock blockName = do
-    ix <- use csBlockCount
+    ix <- fromIntegral . M.size <$> use csBlocks
     names <- use csNames
     let new = emptyBlock ix
         (qname,supply) = uniqueName blockName names
         astName = AST.Name qname
     csBlocks %= M.insert astName new
-    csBlockCount += 1
     csNames .= supply
     return astName
 
 setBlock :: AST.Name -> Codegen ()
 setBlock = (csCurrentBlock .=)
 
+-- | Remove block with given name if it exists. Caller is reponsible
+-- for ensuring that it is not referenced.
 removeBlock :: AST.Name -> Codegen ()
-removeBlock name = do
-    csBlocks %= M.delete name
-    csBlockCount -= 1
+removeBlock name = csBlocks %= M.delete name
 
 getCurrentBlockName :: Codegen AST.Name
 getCurrentBlockName = use csCurrentBlock
@@ -318,37 +349,38 @@ setCurrentBlock bs = do
     csBlocks %= M.insert name bs
 
 -------------------------------------------------------------------------------
--- Symbol Table
+-- Variables and functions
 -------------------------------------------------------------------------------
 
-assignVar :: String -> AST.Operand -> Codegen ()
-assignVar varName varAddr = csVariables . at varName .= Just varAddr
+-- | Add variable with given name and address.
+addVariable :: String -> AST.Operand -> Codegen ()
+addVariable varName varAddr = do
+    exists <- M.member varName <$> use csVariables
+    when exists $ throwCodegenError $
+        formatSingle' "variable name is already in scope: {}" varName
+    csVariables . at varName .= Just varAddr
 
-getVar :: String -> Codegen AST.Operand
-getVar var = do
+reportNotInScope :: String -> Codegen a
+reportNotInScope =
+    throwCodegenError . formatSingle' "variable is not is scope: {}"
+
+-- | Get value of variable with given name. Functions are treated as
+-- variable too, but function's address is not dereferenced.
+getValue :: String -> Codegen AST.Operand
+getValue var = do
     f <- fmap constructF <$> use (csFunctions . at var)
     v <-
         maybe (return Nothing) (load >=> return . Just) =<<
         use (csVariables . at var)
-    maybe reportNotInScope return $ v <|> f
+    maybe (reportNotInScope var) return $ v <|> f
   where
-    reportNotInScope =
-        throwCodegenError $ formatSingle' "variable is not is scope: {}" var
     constructF t = AST.ConstantOperand . C.GlobalReference t $ AST.Name var
 
+-- | Get address of variable with given name. Functions are not
+-- considered by this function.
 getPtr :: String -> Codegen AST.Operand
 getPtr varName =
-    maybe reportNotInScope return =<< use (csVariables . at varName)
-  where
-    reportNotInScope =
-        throwCodegenError $
-        formatSingle' "variable is not is scope: {}" varName
--------------------------------------------------------------------------------
--- References
--------------------------------------------------------------------------------
-
-local :: Type -> AST.Name -> AST.Operand
-local = AST.LocalReference
+    maybe (reportNotInScope varName) return =<< use (csVariables . at varName)
 
 -------------------------------------------------------------------------------
 -- Unary operations
@@ -474,46 +506,53 @@ ret = terminator . AST.Do . flip AST.Ret []
 
 $(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
 
-data LlvmState = LlvmState
-    { _lsFunctions :: Functions
-    , _lsVariables :: SymbolTable
-    , _lsModule    :: AST.Module
+-- | ModuleState is a state of the whole module.
+data ModuleState = ModuleState
+    { _msFunctions :: FunctionsMap
+    , _msVariables :: VariablesMap
+    , _msModule    :: AST.Module
     } deriving (Show)
 
-$(makeLenses ''LlvmState)
+$(makeLenses ''ModuleState)
 
+-- | LLVM is a Monad intended to be used for module code generation.
 newtype LLVM a = LLVM
-    { getLLVM :: ExceptT CodegenException (State LlvmState) a
-    } deriving (Functor,Applicative,Monad,MonadState LlvmState,MonadError CodegenException)
+    { getLLVM :: ExceptT CodegenException (State ModuleState) a
+    } deriving (Functor,Applicative,Monad,MonadState ModuleState,MonadError CodegenException)
 
 class ToLLVM a  where
     toLLVM :: a -> LLVM ()
 
-execLLVM :: LlvmState -> LLVM a -> Either CodegenException AST.Module
+-- | Execute LLVM Monad to produce a generated module.
+execLLVM :: ModuleState -> LLVM a -> Either CodegenException AST.Module
 execLLVM m = f . flip runState m . runExceptT . getLLVM
   where
     f (Left e,_) = Left e
-    f (_,s') = Right $ s' ^. lsModule
+    f (_,s') = Right $ s' ^. msModule
 
-mkLLVM :: String -> AST.Module -> Functions -> SymbolTable -> LlvmState
-mkLLVM moduleName preludeModule preludeFunctions preludeVariables =
-    LlvmState
-    { _lsFunctions = preludeFunctions
-    , _lsVariables = preludeVariables
-    , _lsModule = preludeModule
+-- | Make initial module state with given name and some predefined
+-- functions and variables.
+mkModuleState :: String -> AST.Module -> FunctionsMap -> VariablesMap -> ModuleState
+mkModuleState moduleName preludeModule preludeFunctions preludeVariables =
+    ModuleState
+    { _msFunctions = preludeFunctions
+    , _msVariables = preludeVariables
+    , _msModule = preludeModule
       { AST.moduleName = moduleName
       }
     }
 
 addDefn :: AST.Definition -> LLVM ()
-addDefn d = lsModule . mDefinitions <>= [d]
+addDefn d = msModule . mDefinitions <>= [d]
 
+-- | Add function with given return type, name, arguments and suite to
+-- module.
 addFuncDef
     :: (ToCodegen a r)
     => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
-    funcs <- use lsFunctions
-    vars <- use lsVariables
+    funcs <- use msFunctions
+    vars <- use msVariables
     case bodyEither funcs vars of
         Left e -> throwError e
         Right body -> do
@@ -524,13 +563,14 @@ addFuncDef retType funcName args suite = do
                 , G.returnType = retType
                 , G.basicBlocks = body
                 }
-            lsFunctions . at funcName .= Just retType
+            msFunctions . at funcName .= Just retType
   where
     funcName' = AST.Name funcName
     bodyEither funcs vars =
         execCodegen funcs vars (toCodegen suite) >>= createBlocks
     parameters = ([G.Parameter t n [] | (t,n) <- args], False)
 
+-- | Add global variable with given type and name to module.
 addGlobalVariable
     :: (ToConstant a)
     => AST.Type -> String -> a -> LLVM ()
@@ -542,7 +582,7 @@ addGlobalVariable varType varName varExpr = do
         , G.type' = varType
         , G.initializer = Just value
         }
-    lsVariables . at varName .=
+    msVariables . at varName .=
         Just (AST.ConstantOperand $ C.GlobalReference varType $ varName')
   where
     varName' = AST.Name varName

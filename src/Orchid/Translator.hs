@@ -42,7 +42,7 @@ translatePure :: ModuleName
 translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
   where
     initialState =
-        C.mkLLVM mName preludeModule preludeFunctions preludeVariables
+        C.mkModuleState mName preludeModule preludeFunctions preludeVariables
     preludeFunctions =
         M.fromList
             [ ("stdReadInt", C.int64)
@@ -160,7 +160,7 @@ instance C.ToLLVM OT.FuncDef where
         codegenArgument (argType,argName) = do
             addr <- C.alloca argType
             () <$ (C.store addr $ AST.LocalReference argType argName)
-            C.assignVar (fromName argName) addr
+            C.addVariable (fromName argName) addr
         fromName (AST.Name s) = s
         fromName _ = error "fromName failed"
 
@@ -187,7 +187,7 @@ instance C.ToCodegen OT.DeclStmt () where
         addr <- C.alloca t
         val <- C.toCodegen dsExpr
         () <$ C.store addr val
-        C.assignVar (convertString dsVar) addr
+        C.addVariable (convertString dsVar) addr
 
 instance C.ToCodegen OT.ExprStmt () where
     toCodegen OT.ExprStmt{..} = do
@@ -242,7 +242,7 @@ instance C.ToCodegen OT.AtomExpr AST.Operand where
 
 instance C.ToCodegen OT.Atom AST.Operand where
     toCodegen (OT.AExpr e) = C.toCodegen e
-    toCodegen (OT.AIdentifier v) = C.getVar $ convertString v
+    toCodegen (OT.AIdentifier v) = C.getValue $ convertString v
     toCodegen (OT.ANumber n) = AST.ConstantOperand <$> C.toConstant n
     toCodegen (OT.ABool b) = AST.ConstantOperand <$> C.toConstant b
 
@@ -298,7 +298,9 @@ instance C.ToCodegen OT.Suite () where
 
 instance C.ToConstant OT.Expr where
     toConstant (OT.EAtom a) = C.toConstant a
-    toConstant _ = C.throwCodegenError "TODO"
+    toConstant _ =
+        C.throwCodegenError
+            "operator used on expressions can't be used as constant (it may be improved in later versions)"
 
 instance C.ToConstant OT.AtomExpr where
     toConstant (OT.AEAtom a) = C.toConstant a
