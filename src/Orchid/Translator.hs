@@ -44,7 +44,10 @@ translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
     initialState =
         C.mkLLVM mName preludeModule preludeFunctions preludeVariables
     preludeFunctions =
-        M.fromList [("stdReadInt", C.int64), ("stdWriteInt", C.void)]
+        M.fromList
+            [ ("stdReadInt", C.int64)
+            , ("stdWriteInt", C.void)
+            , ("stdExit", C.void)]
     preludeVariables = M.empty
 
 translate :: ModuleName -> OT.Input -> (G.Module -> IO a) -> IO a

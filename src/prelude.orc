@@ -1,4 +1,7 @@
 def stdPower(a: int64, b: int64) → int64:
+    if a == 0 and b <= 0:
+       stdExit(3)
+
     if b < 0:
         a = 1 / a
         b = -b
