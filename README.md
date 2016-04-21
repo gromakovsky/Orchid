@@ -151,3 +151,7 @@ Note that by default stack will download and install correct version of `GHC` in
 Run `stack setup` and then `stack build` to build the compiler. Run `stack exec Orchid -- <ARGUMENTS>` to run the compiler. Run `stack exec orchid -- --help` to get a full list of options.
 
 If you want to run tests use `stack test Orchid` command.
+
+## Known bugs
+
+-- return is required even if function returns void
