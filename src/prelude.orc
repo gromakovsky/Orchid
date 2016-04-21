@@ -15,3 +15,15 @@ def stdPower(a: int64, b: int64) → int64:
         b = b / 2
 
     return r
+
+def stdReadBool() → bool:
+    return stdReadInt() != 0
+
+# TODO: make it possible to omit return and to write return stdWriteInt(1)
+def stdWriteBool(a: bool):
+    if a:
+        stdWriteInt(1)
+        return
+    else:
+        stdWriteInt(0)
+        return
