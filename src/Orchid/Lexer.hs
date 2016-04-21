@@ -142,7 +142,7 @@ lexerGen = Tok.makeTokenParser style
         emptyDef
         { Tok.commentLine = "#"
         , Tok.identStart = letter <|> char '_'
-        , Tok.identLetter = alphaNum <|> oneOf "_'$"
+        , Tok.identLetter = alphaNum <|> oneOf "_'"
         , Tok.opStart = oneOf "!<>=+-*/%"
         , Tok.opLetter = Tok.opStart style
         , Tok.reservedNames = [ "pass"

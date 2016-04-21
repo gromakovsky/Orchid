@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE Rank2Types             #-}
 {-# LANGUAGE TemplateHaskell        #-}
 
 -- | Primitive functions to work with LLVM code generation.
@@ -10,10 +11,6 @@ module Orchid.Codegen
        (
          -- Helpers
          throwCodegenError
-
-         -- Types
-       , int64
-       , bool
 
          -- Codegen
        , Codegen
@@ -60,6 +57,7 @@ module Orchid.Codegen
        , constBool
        , ToConstant
        , toConstant
+       , complexConstant
 
          -- Effects
        , call
@@ -82,6 +80,13 @@ module Orchid.Codegen
        , mkModuleState
        , addFuncDef
        , addGlobalVariable
+       , startClassDef
+       , finishClassDef
+
+         -- Types
+       , int64
+       , bool
+       , lookupType
 
          -- Reexports
        , Type (..)
@@ -90,10 +95,10 @@ module Orchid.Codegen
        ) where
 
 import           Control.Applicative                ((<|>))
-import           Control.Lens                       (at, makeLenses,
+import           Control.Lens                       (Lens', at, makeLenses,
                                                      makeLensesFor, use, view,
                                                      (%=), (+=), (.=), (.~),
-                                                     (<>=), (<>~), (^.))
+                                                     (<>=), (<>~), (^.), _Just)
 import           Control.Monad                      (unless, when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
@@ -148,14 +153,6 @@ instance Buildable AST.Name where
 type Named = AST.Named
 
 -------------------------------------------------------------------------------
--- Types
--------------------------------------------------------------------------------
-
-int64, bool :: Type
-int64 = i64
-bool = i1
-
--------------------------------------------------------------------------------
 -- Codegen State
 -------------------------------------------------------------------------------
 
@@ -188,6 +185,25 @@ type VariablesMap = M.Map String VariableData
 type FunctionData = Type
 type FunctionsMap = M.Map String FunctionData
 
+-- | ClassVariable type represents variable defined inside class
+-- body. It has a type and initial value (used for construction).
+data ClassVariable = ClassVariable
+    { _cvType        :: Type
+    , _cvInitializer :: C.Constant
+    } deriving (Show)
+
+$(makeLenses ''ClassVariable)
+
+-- | ClassData stores all data associated with class.
+data ClassData = ClassData
+    { _cdName      :: String
+    , _cdVariables :: M.Map String ClassVariable
+    } deriving (Show)
+
+type ClassesMap = M.Map String ClassData
+
+$(makeLenses ''ClassData)
+
 -- | CodegenState represents all the state used by function body
 -- generator.
 data CodegenState = CodegenState
@@ -200,6 +216,9 @@ data CodegenState = CodegenState
     ,
       -- ^ Global functions.
       _csFunctions    :: FunctionsMap
+    ,
+      -- ^ Global classes.
+      _csClasses      :: ClassesMap
     ,
       -- ^ Map from global/local variable name to it's address.
       _csVariables    :: VariablesMap
@@ -230,6 +249,12 @@ class ToCodegen a r | a -> r where
 instance ToCodegen (Codegen a) a where
     toCodegen = id
 
+class HasCodegen s  where
+    classesLens :: Lens' s ClassesMap
+
+instance HasCodegen CodegenState where
+    classesLens = csClasses
+
 -------------------------------------------------------------------------------
 -- Codegen execution
 -------------------------------------------------------------------------------
@@ -254,25 +279,28 @@ entryBlockName = "entry"
 emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-emptyCodegen :: FunctionsMap -> VariablesMap -> CodegenState
-emptyCodegen functions symbols =
+emptyCodegen :: FunctionsMap -> ClassesMap -> VariablesMap -> CodegenState
+emptyCodegen functions classes symbols =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
     { _csCurrentBlock = entryBlockName
     , _csBlocks = M.empty
     , _csFunctions = functions
+    , _csClasses = classes
     , _csVariables = symbols
     , _csCount = 0
     , _csNames = M.empty
     }
 
 execCodegen :: FunctionsMap
+            -> ClassesMap
             -> VariablesMap
             -> Codegen a
             -> Either CodegenException CodegenState
-execCodegen functions symbols = f . flip runState initial . runExceptT . getCodegen
+execCodegen functions classes symbols =
+    f . flip runState initial . runExceptT . getCodegen
   where
-    initial = emptyCodegen functions symbols
+    initial = emptyCodegen functions classes symbols
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -357,7 +385,7 @@ addVariable varName varAddr = do
 
 reportNotInScope :: String -> Codegen a
 reportNotInScope =
-    throwCodegenError . formatSingle' "variable is not is scope: {}"
+    throwCodegenError . formatSingle' "variable is not in scope: {}"
 
 -- | Get value of variable with given name. Functions are treated as
 -- variable too, but function's address is not dereferenced.
@@ -451,7 +479,7 @@ constBool = C.Int 1 . boolToInteger
 
 class ToConstant a  where
     toConstant
-        :: MonadError CodegenException m
+        :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
         => a -> m C.Constant
 
 instance ToConstant Int64 where
@@ -459,6 +487,23 @@ instance ToConstant Int64 where
 
 instance ToConstant Bool where
     toConstant = pure . constBool
+
+-- | Complex constant is produced by constructor.
+complexConstant
+    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    => String -> [(Type, C.Constant)] -> m C.Constant
+complexConstant constructorName _ = do
+    cls <- use $ classesLens . at constructorName
+    maybe onFailure onSuccess cls
+  where
+    onFailure =
+        throwCodegenError $
+        formatSingle' "constructor not found: {}" constructorName
+    onSuccess =
+        return .
+        C.Struct Nothing False .
+        map (view cvInitializer) . M.elems . view cdVariables
+
 
 -------------------------------------------------------------------------------
 -- Effects
@@ -496,6 +541,30 @@ ret :: Maybe AST.Operand -> Codegen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
 
 -------------------------------------------------------------------------------
+-- Types
+-------------------------------------------------------------------------------
+
+int64, bool :: Type
+int64 = i64
+bool = i1
+
+predefinedTypes :: M.Map String Type
+predefinedTypes = M.fromList [("int64", int64), ("bool", bool)]
+
+classType :: ClassData -> Type
+classType =
+    StructureType False . map (view cvType) . M.elems . view cdVariables
+
+lookupType
+    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    => String -> m Type
+lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
+  where
+    throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
+    tryClass =
+        maybe throwUnknownType (return . classType) =<< use (classesLens . at t)
+
+-------------------------------------------------------------------------------
 -- Module Level
 -------------------------------------------------------------------------------
 
@@ -504,11 +573,16 @@ $(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
 -- | ModuleState is a state of the whole module.
 data ModuleState = ModuleState
     { _msFunctions :: FunctionsMap
+    , _msClasses   :: ClassesMap
     , _msVariables :: VariablesMap
+    , _msClass     :: Maybe String
     , _msModule    :: AST.Module
     } deriving (Show)
 
 $(makeLenses ''ModuleState)
+
+instance HasCodegen ModuleState where
+    classesLens = msClasses
 
 -- | LLVM is a Monad intended to be used for module code generation.
 newtype LLVM a = LLVM
@@ -527,15 +601,26 @@ execLLVM m = f . flip runState m . runExceptT . getLLVM
 
 -- | Make initial module state with given name and some predefined
 -- functions and variables.
-mkModuleState :: String -> AST.Module -> FunctionsMap -> VariablesMap -> ModuleState
-mkModuleState moduleName preludeModule preludeFunctions preludeVariables =
+mkModuleState
+    :: String
+    -> AST.Module
+    -> FunctionsMap
+    -> ClassesMap
+    -> VariablesMap
+    -> ModuleState
+mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVariables =
     ModuleState
     { _msFunctions = preludeFunctions
+    , _msClasses = preludeClasses
     , _msVariables = preludeVariables
+    , _msClass = Nothing
     , _msModule = preludeModule
       { AST.moduleName = moduleName
       }
     }
+
+-- lookupTypeLLVM :: String -> LLVM Type
+-- lookupTypeLLVM = lookupType msClasses
 
 addDefn :: AST.Definition -> LLVM ()
 addDefn d = msModule . mDefinitions <>= [d]
@@ -547,8 +632,9 @@ addFuncDef
     => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
     funcs <- use msFunctions
+    classes <- use msClasses
     vars <- use msVariables
-    case bodyEither funcs vars of
+    case bodyEither funcs classes vars of
         Left e -> throwError e
         Right body -> do
             addDefn $ AST.GlobalDefinition $
@@ -561,23 +647,61 @@ addFuncDef retType funcName args suite = do
             msFunctions . at funcName .= Just retType
   where
     funcName' = AST.Name funcName
-    bodyEither funcs vars =
-        execCodegen funcs vars (toCodegen suite) >>= createBlocks
+    bodyEither funcs classes vars =
+        execCodegen funcs classes vars (toCodegen suite) >>= createBlocks
     parameters = ([G.Parameter t n [] | (t,n) <- args], False)
 
--- | Add global variable with given type and name to module.
+-- | Outside class this function adds global variable with given type
+-- and name to module. Inside class definition it adds given variable
+-- as part of class.
 addGlobalVariable
     :: (ToConstant a)
     => AST.Type -> String -> a -> LLVM ()
 addGlobalVariable varType varName varExpr = do
     value <- toConstant varExpr
-    addDefn $ AST.GlobalDefinition $
-        G.globalVariableDefaults
-        { G.name = varName'
-        , G.type' = varType
-        , G.initializer = Just value
-        }
-    msVariables . at varName .=
-        Just (AST.ConstantOperand $ C.GlobalReference varType $ varName')
+    cls <- use msClass
+    maybe addToGlobal addToClass cls $ value
   where
     varName' = AST.Name varName
+    addToGlobal value = do
+        addDefn $ AST.GlobalDefinition $
+            G.globalVariableDefaults
+            { G.name = varName'
+            , G.type' = varType
+            , G.initializer = Just value
+            }
+        msVariables . at varName .=
+            Just (AST.ConstantOperand $ C.GlobalReference varType $ varName')
+    addToClass cls value = do
+        msClasses . at cls . _Just . cdVariables %=
+            (M.insert varName (varData value))
+    varData value =
+        ClassVariable
+        { _cvType = varType
+        , _cvInitializer = value
+        }
+
+startClassDef :: String -> LLVM ()
+startClassDef className = do
+    cls <- use msClass
+    maybe
+        addNewCls
+        (const $
+         throwCodegenError "class definition can't appear inside another class")
+        cls
+  where
+    newClass =
+        ClassData
+        { _cdName = className
+        , _cdVariables = M.empty
+        }
+    addNewCls = do
+        msClass .= Just className
+        msClasses %= M.insert className newClass
+
+finishClassDef :: LLVM ()
+finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass
+  where
+    reportError =
+        throwCodegenError
+            "internal error: attempt to finish definition of class outside of class"

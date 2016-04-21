@@ -9,9 +9,12 @@ module Orchid.Compiler
        , compile
        ) where
 
+import           Control.Exception (catch)
 import           Data.FileEmbed    (embedStringFile)
 import           Data.String       (IsString)
+import qualified Data.Text.IO      as TIO
 
+import           Orchid.Error      (CodegenException (..))
 import           Orchid.Lexer      (tokenizeInputFile)
 import           Orchid.Parser     (parseInput, parseInputFile)
 import           Orchid.Token      (Token)
@@ -43,7 +46,8 @@ orchidPrelude =
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do
     input <- parseInputFile coInputFile
-    translateToFile coOutputFile $ mconcat [orchidPrelude, input]
+    translateToFile coOutputFile (mconcat [orchidPrelude, input]) `catch`
+        handleCodegenException
     ceTokens <-
         if coReturnTokens
             then Just <$> tokenizeInputFile coInputFile
@@ -55,3 +59,5 @@ compile CompilerOptions{..} = do
               else Nothing
         , ..
         }
+  where
+    handleCodegenException (CodegenException t) = TIO.putStrLn t

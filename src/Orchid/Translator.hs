@@ -15,7 +15,6 @@ import           Control.Monad           (join, unless, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT)
 import           Data.FileEmbed          (embedStringFile)
 import qualified Data.Map                as M
-import           Data.Monoid             ((<>))
 import           Data.String             (IsString)
 import           Data.String.Conversions (convertString)
 import qualified LLVM.General            as G
@@ -42,12 +41,18 @@ translatePure :: ModuleName
 translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
   where
     initialState =
-        C.mkModuleState mName preludeModule preludeFunctions preludeVariables
+        C.mkModuleState
+            mName
+            preludeModule
+            preludeFunctions
+            preludeClasses
+            preludeVariables
     preludeFunctions =
         M.fromList
             [ ("stdReadInt", C.int64)
             , ("stdWriteInt", C.void)
             , ("stdExit", C.void)]
+    preludeClasses = M.empty
     preludeVariables = M.empty
 
 translate :: ModuleName -> OT.Input -> (G.Module -> IO a) -> IO a
@@ -93,24 +98,10 @@ handleFatalError =
     either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
     runExceptT
 
-predefinedTypes :: M.Map OT.Identifier C.Type
-predefinedTypes =
-    M.fromList [("int64", C.int64), ("bool", C.bool)]
-
--- Type lookup will be more complex after user defined classes are added
-lookupType :: OT.Identifier -> C.LLVM C.Type
-lookupType t =
-    maybe (C.throwCodegenError $ "unknown type: " <> t) return $
-    M.lookup t predefinedTypes
-
-lookupType' :: OT.Identifier -> C.Codegen C.Type
-lookupType' t =
-    maybe (C.throwCodegenError $ "unknown type: " <> t) return $
-    M.lookup t predefinedTypes
-
 convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, C.Name)
 convertTypedArg OT.TypedArgument{..} =
-    (, C.Name (convertString taName)) <$> lookupType taType
+    (, C.Name (convertString taName)) <$>
+    C.lookupType (convertString taType)
 
 --------------------------------------------------------------------------------
 -- C.ToLLVM
@@ -137,7 +128,7 @@ instance C.ToLLVM OT.SmallStmt where
 instance C.ToLLVM OT.DeclStmt where
     toLLVM OT.DeclStmt{..} =
         join $
-        C.addGlobalVariable <$> lookupType dsType <*>
+        C.addGlobalVariable <$> C.lookupType (convertString dsType) <*>
         pure (convertString dsVar) <*>
         pure dsExpr
 
@@ -147,10 +138,11 @@ instance C.ToLLVM OT.CompoundStmt where
     toLLVM (OT.CSWhile _) =
         C.throwCodegenError "'while' is not a valid top-level statement"
     toLLVM (OT.CSFunc s) = C.toLLVM s
+    toLLVM (OT.CSClass s) = C.toLLVM s
 
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
-        ret <- maybe (return C.void) lookupType funcRet
+        ret <- maybe (return C.void) (C.lookupType . convertString) funcRet
         args <- mapM convertTypedArg funcArgs
         C.addFuncDef ret (convertString funcName) args $ bodyCodegen args
       where
@@ -163,6 +155,20 @@ instance C.ToLLVM OT.FuncDef where
             C.addVariable (fromName argName) addr
         fromName (AST.Name s) = s
         fromName _ = error "fromName failed"
+
+instance C.ToLLVM OT.ClassDef where
+    -- TODO: inheritance
+    toLLVM OT.ClassDef{..} = do
+        C.startClassDef $ convertString clsName
+        C.toLLVM clsBody
+        C.finishClassDef
+
+instance C.ToLLVM OT.ClassSuite where
+    toLLVM = mapM_ C.toLLVM . OT.getClassSuite
+
+instance C.ToLLVM OT.ClassStmt where
+    toLLVM OT.ClassStmt{csAccess = _,csPayload = Left f} = undefined
+    toLLVM OT.ClassStmt{csAccess = _,csPayload = Right v} = C.toLLVM v
 
 --------------------------------------------------------------------------------
 -- C.ToCodegen
@@ -183,7 +189,7 @@ instance C.ToCodegen OT.SmallStmt () where
 
 instance C.ToCodegen OT.DeclStmt () where
     toCodegen OT.DeclStmt{..} = do
-        t <- lookupType' dsType
+        t <- C.lookupType $ convertString dsType
         addr <- C.alloca t
         val <- C.toCodegen dsExpr
         () <$ C.store addr val
@@ -239,6 +245,7 @@ instance C.ToCodegen OT.AtomExpr AST.Operand where
     toCodegen (OT.AEAtom a) = C.toCodegen a
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
+    toCodegen (OT.AEAccess _ _) = C.throwCodegenError "TODO"
 
 instance C.ToCodegen OT.Atom AST.Operand where
     toCodegen (OT.AExpr e) = C.toCodegen e
@@ -251,6 +258,8 @@ instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSWhile s) = C.toCodegen s
     toCodegen (OT.CSFunc _) =
         C.throwCodegenError "nested functions are not supported"
+    toCodegen (OT.CSClass _) =
+        C.throwCodegenError "class definition is allowed only as top-level"
 
 instance C.ToCodegen OT.IfStmt () where
     toCodegen (OT.IfStmt expr trueBody falseBody) = do
@@ -304,8 +313,12 @@ instance C.ToConstant OT.Expr where
 
 instance C.ToConstant OT.AtomExpr where
     toConstant (OT.AEAtom a) = C.toConstant a
+    toConstant (OT.AECall (OT.AEAtom (OT.AIdentifier f)) _) =
+        C.complexConstant (convertString f) []
     toConstant (OT.AECall _ _) =
         C.throwCodegenError "function call can't be used as constant"
+    toConstant (OT.AEAccess _ _) =
+        C.throwCodegenError "field access can't be used as constant"
 
 instance C.ToConstant OT.Atom where
     toConstant (OT.AExpr e) = C.toConstant e
