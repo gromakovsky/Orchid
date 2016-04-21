@@ -274,7 +274,7 @@ colonL :: Lexer
 colonL = parseSymbol ":" TokColon
 
 arrowL :: Lexer
-arrowL = parseSymbol "→" TokArrow <|> parseSymbol "->" TokArrow
+arrowL = parseSymbol "→" TokArrow
 
 indentL :: Lexer
 indentL = readExtraToken TokIndent
