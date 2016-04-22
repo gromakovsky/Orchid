@@ -6,12 +6,14 @@
 module Orchid.Compiler
        ( CompilerOptions (..)
        , CompilerExtra (..)
+       , compileStr
        , compile
        ) where
 
 import           Control.Exception (catch)
 import           Data.FileEmbed    (embedStringFile)
 import           Data.String       (IsString)
+import           Data.Text         (Text)
 import qualified Data.Text.IO      as TIO
 
 import           Orchid.Error      (CodegenException (..))
@@ -42,6 +44,11 @@ orchidPrelude :: Input
 orchidPrelude =
     either (error "Fatal error: failed to parse prelude") id $
     parseInput "prelude" orchidPreludeStr
+
+compileStr :: Text -> FilePath -> IO ()
+compileStr inputText outFp = do
+    let Right input = parseInput "<text>" inputText
+    translateToFile outFp (mconcat [orchidPrelude, input])
 
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do

@@ -56,15 +56,21 @@ executable orchid
 test-suite orchid-test
   main-is:             Test.hs
   other-modules:       Orchid.Arbitrary
+                       Orchid.CompilerSpec
                        Orchid.LexerSpec
                        Orchid.ParserSpec
                        Spec
   type:                exitcode-stdio-1.0
   build-depends:       base >= 4.8
+                     , filepath
+                     , file-embed
                      , hspec
                      , Orchid
                      , QuickCheck
+                     , string-conversions
+                     , temporary
                      , text
+                     , turtle
   hs-source-dirs:      test
   default-language:    Haskell2010
   ghc-options:         -O0 -threaded -rtsopts -with-rtsopts=-N -Wall -fno-warn-orphans
