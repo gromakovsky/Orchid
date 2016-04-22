@@ -103,8 +103,9 @@ convertTypedArg OT.TypedArgument{..} =
     (, C.Name (convertString taName)) <$>
     C.lookupType (convertString taType)
 
+-- TODO: take class name into account!
 mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
-mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
+mangleClassMethodName _ funcName = mconcat ["", "$$", funcName]
 
 --------------------------------------------------------------------------------
 -- C.ToLLVM
@@ -264,6 +265,13 @@ instance C.ToCodegen OT.Expr AST.Operand where
 
 instance C.ToCodegen OT.AtomExpr AST.Operand where
     toCodegen (OT.AEAtom a) = C.toCodegen a
+    toCodegen (OT.AECall (OT.AEAccess (OT.AEAtom (OT.AIdentifier varName)) fieldName) exprs) = do
+        varPtr <- C.getPtr $ convertString varName
+        fPtr <-
+            C.getValue $
+            mangleClassMethodName undefined $ convertString fieldName
+        args <- (varPtr :) <$> mapM C.toCodegen exprs
+        C.call fPtr args
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
     toCodegen (OT.AEAccess _ _) = C.throwCodegenError "TODO"
