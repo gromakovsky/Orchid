@@ -15,10 +15,20 @@ import           Turtle                  (procStrict)
 
 import           Orchid.Compiler         (compileStr)
 
-factorial_io
+factorial_ioInput
     :: IsString s
     => s
-factorial_io = $(embedStringFile "test/data/factorial_io.orc")
+factorial_ioInput = $(embedStringFile "test/data/factorial_io.orc")
+
+classInput
+    :: IsString s
+    => s
+classInput = $(embedStringFile "test/data/class.orc")
+
+errorInput
+    :: IsString s
+    => s
+errorInput = $(embedStringFile "test/data/error.orc")
 
 programOutput :: Text -> Text -> IO Text
 programOutput programSource programInput = withSystemTempDirectory "patak" cb
@@ -40,6 +50,9 @@ spec :: Spec
 spec =
     describe "Compiler" $ do
         describe "compileStr" $ do
-            it "compiles input string and dumps result to output file as textual LLVM IR" $ do
-                factorialOutput <- programOutput factorial_io "6\n"
-                factorialOutput `shouldBe` "720\n"
+            it "Properly compiles factorial_io.orc" $
+                shouldBe "720\n" =<< programOutput factorial_ioInput "6\n"
+            it "Properly compiles class.orc" $
+                shouldBe "42\n" =<< programOutput classInput ""
+            it "Properly compiles error.orc" $
+                shouldBe "Error occurred\n" =<< programOutput errorInput ""
