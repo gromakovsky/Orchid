@@ -1,13 +1,14 @@
 class Point:
-    public int64 x = 0
-    public int64 y = 0
+    public int64 x = 10
+    public int64 y = 15
 
-    public def printSum():
-        stdWriteInt(x + y)
+    public def printSum(a : int64):
+        stdWriteInt(x + y + a)
         return
 
+Point p = Point()
+
 def main():
-    Point p = Point()
-    p.printSum()
+    p.printSum(17)
     return
 
