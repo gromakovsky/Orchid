@@ -38,6 +38,10 @@ def f(a : int64, b: int64) → int64:
     return a + b
 ```
 
+### Class definition
+
+Class definition starts with `class` keyword followed by class name, optional parent class in parenthesis and `:` symbol. The next lines contain indented block with class's body containing sequence of class statements. **TODO**
+
 ### Variable definition
 
 Variable definition may occur as a top-level statement (in this case it's global variable) or inside function body (local variable). It has a form `type name = value`.
@@ -148,7 +152,7 @@ Note that by default stack will download and install correct version of `GHC` in
 
 ## Usage
 
-Run `stack setup` and then `stack build` to build the compiler. Run `stack exec Orchid -- <ARGUMENTS>` to run the compiler. Run `stack exec orchid -- --help` to get a full list of options.
+Run `stack setup` and then `stack build` to build the compiler. Run `stack exec orchid -- <ARGUMENTS>` to run the compiler. Run `stack exec orchid -- --help` to get a full list of options.
 
 If you want to run tests use `stack test Orchid` command.
 
