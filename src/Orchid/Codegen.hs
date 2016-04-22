@@ -78,6 +78,7 @@ module Orchid.Codegen
        , toLLVM
        , execLLVM
        , mkModuleState
+       , getActiveClass
        , addFuncDef
        , addGlobalVariable
        , startClassDef
@@ -87,6 +88,7 @@ module Orchid.Codegen
        , int64
        , bool
        , lookupType
+       , classPointerType
 
          -- Reexports
        , Type (..)
@@ -106,7 +108,7 @@ import           Control.Monad.Except               (ExceptT,
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
 import           Data.Function                      (on, (&))
-import           Data.Int                           (Int64)
+import           Data.Int                           (Int32, Int64)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
 import           Data.Maybe                         (isJust)
@@ -114,6 +116,7 @@ import           Data.String                        (IsString (fromString))
 import           Data.Text                          (Text)
 import           Data.Text.Buildable                (Buildable (build))
 import qualified LLVM.General.AST                   as AST
+import           LLVM.General.AST.AddrSpace         (AddrSpace (AddrSpace))
 import qualified LLVM.General.AST.Attribute         as A
 import qualified LLVM.General.AST.CallingConvention as CC
 import qualified LLVM.General.AST.Constant          as C
@@ -196,8 +199,7 @@ $(makeLenses ''ClassVariable)
 
 -- | ClassData stores all data associated with class.
 data ClassData = ClassData
-    { _cdName      :: String
-    , _cdVariables :: M.Map String ClassVariable
+    { _cdVariables :: M.Map String ClassVariable
     } deriving (Show)
 
 type ClassesMap = M.Map String ClassData
@@ -228,6 +230,8 @@ data CodegenState = CodegenState
     ,
       -- ^ This map is used to generated unique names for blocks.
       _csNames        :: Names
+    , _csActiveClass  :: Maybe String  -- ^ Name of class inside which
+                                       -- this function is located.
     } deriving (Show)
 
 $(makeLenses ''CodegenState)
@@ -279,8 +283,8 @@ entryBlockName = "entry"
 emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-emptyCodegen :: FunctionsMap -> ClassesMap -> VariablesMap -> CodegenState
-emptyCodegen functions classes symbols =
+mkCodegen :: FunctionsMap -> ClassesMap -> VariablesMap -> Maybe String -> CodegenState
+mkCodegen functions classes symbols activeClass =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
     { _csCurrentBlock = entryBlockName
@@ -290,17 +294,19 @@ emptyCodegen functions classes symbols =
     , _csVariables = symbols
     , _csCount = 0
     , _csNames = M.empty
+    , _csActiveClass = activeClass
     }
 
 execCodegen :: FunctionsMap
             -> ClassesMap
             -> VariablesMap
+            -> Maybe String
             -> Codegen a
             -> Either CodegenException CodegenState
-execCodegen functions classes symbols =
+execCodegen functions classes symbols activeClass =
     f . flip runState initial . runExceptT . getCodegen
   where
-    initial = emptyCodegen functions classes symbols
+    initial = mkCodegen functions classes symbols activeClass
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -372,8 +378,12 @@ setCurrentBlock bs = do
     csBlocks %= M.insert name bs
 
 -------------------------------------------------------------------------------
--- Variables and functions
+-- Variables, functions and classes
 -------------------------------------------------------------------------------
+
+codegenActiveClassData :: Codegen (Maybe ClassData)
+codegenActiveClassData =
+    maybe (return Nothing) (\n -> use $ csClasses . at n) =<< use csActiveClass
 
 -- | Add variable with given name and address.
 addVariable :: String -> AST.Operand -> Codegen ()
@@ -392,9 +402,7 @@ reportNotInScope =
 getValue :: String -> Codegen AST.Operand
 getValue var = do
     f <- fmap constructF <$> use (csFunctions . at var)
-    v <-
-        maybe (return Nothing) (load >=> return . Just) =<<
-        use (csVariables . at var)
+    v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
     maybe (reportNotInScope var) return $ v <|> f
   where
     constructF t = AST.ConstantOperand . C.GlobalReference t $ AST.Name var
@@ -403,7 +411,31 @@ getValue var = do
 -- considered by this function.
 getPtr :: String -> Codegen AST.Operand
 getPtr varName =
-    maybe (reportNotInScope varName) return =<< use (csVariables . at varName)
+    maybe (reportNotInScope varName) return =<< getPtrMaybe varName
+
+getPtrMaybe :: String -> Codegen (Maybe AST.Operand)
+getPtrMaybe varName =
+    (<|>) <$> use (csVariables . at varName) <*> getMemberPtr varName
+
+getMemberPtr :: String -> Codegen (Maybe AST.Operand)
+getMemberPtr varName
+  | varName == "this" = pure Nothing
+  | otherwise =
+      maybe (pure Nothing) (getMemberPtrDo varName) =<< codegenActiveClassData
+
+getMemberPtrDo :: String -> ClassData -> Codegen (Maybe AST.Operand)
+getMemberPtrDo varName cd = do
+    thisPtr <- getPtr "this"
+    case M.lookupIndex varName $ cd ^. cdVariables of
+        Nothing -> pure Nothing
+        Just i ->
+            fmap Just . instr $
+            AST.GetElementPtr
+                False
+                thisPtr
+                [ AST.ConstantOperand $ constInt32 0
+                , AST.ConstantOperand $ constInt32 $ fromIntegral i]
+                []
 
 -------------------------------------------------------------------------------
 -- Unary operations
@@ -470,6 +502,10 @@ mod a b = instr $ AST.SRem a b []
 
 constInt64 :: Int64 -> C.Constant
 constInt64 = C.Int 64 . toInteger
+
+-- For internal usage
+constInt32 :: Int32 -> C.Constant
+constInt32 = C.Int 32 . toInteger
 
 constBool :: Bool -> C.Constant
 constBool = C.Int 1 . boolToInteger
@@ -564,6 +600,17 @@ lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
     tryClass =
         maybe throwUnknownType (return . classType) =<< use (classesLens . at t)
 
+classPointerType
+    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    => String -> m Type
+classPointerType t =
+    maybe
+        throwUnknownType
+        (return . flip PointerType (AddrSpace 0) . classType) =<<
+    use (classesLens . at t)
+  where
+    throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
+
 -------------------------------------------------------------------------------
 -- Module Level
 -------------------------------------------------------------------------------
@@ -619,14 +666,15 @@ mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVa
       }
     }
 
--- lookupTypeLLVM :: String -> LLVM Type
--- lookupTypeLLVM = lookupType msClasses
+-- | Get name of active class (if any).
+getActiveClass :: LLVM (Maybe String)
+getActiveClass = use msClass
 
 addDefn :: AST.Definition -> LLVM ()
 addDefn d = msModule . mDefinitions <>= [d]
 
 -- | Add function with given return type, name, arguments and suite to
--- module.
+-- module. This function sets active class for given codegen.
 addFuncDef
     :: (ToCodegen a r)
     => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
@@ -634,7 +682,8 @@ addFuncDef retType funcName args suite = do
     funcs <- use msFunctions
     classes <- use msClasses
     vars <- use msVariables
-    case bodyEither funcs classes vars of
+    activeClass <- use msClass
+    case bodyEither funcs classes vars activeClass of
         Left e -> throwError e
         Right body -> do
             addDefn $ AST.GlobalDefinition $
@@ -647,8 +696,9 @@ addFuncDef retType funcName args suite = do
             msFunctions . at funcName .= Just retType
   where
     funcName' = AST.Name funcName
-    bodyEither funcs classes vars =
-        execCodegen funcs classes vars (toCodegen suite) >>= createBlocks
+    bodyEither funcs classes vars activeClass =
+        execCodegen funcs classes vars activeClass (toCodegen suite) >>=
+        createBlocks
     parameters = ([G.Parameter t n [] | (t,n) <- args], False)
 
 -- | Outside class this function adds global variable with given type
@@ -692,8 +742,7 @@ startClassDef className = do
   where
     newClass =
         ClassData
-        { _cdName = className
-        , _cdVariables = M.empty
+        { _cdVariables = M.empty
         }
     addNewCls = do
         msClass .= Just className

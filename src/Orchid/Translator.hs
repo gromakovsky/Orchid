@@ -103,6 +103,9 @@ convertTypedArg OT.TypedArgument{..} =
     (, C.Name (convertString taName)) <$>
     C.lookupType (convertString taType)
 
+mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
+mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
+
 --------------------------------------------------------------------------------
 -- C.ToLLVM
 --------------------------------------------------------------------------------
@@ -143,18 +146,36 @@ instance C.ToLLVM OT.CompoundStmt where
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
         ret <- maybe (return C.void) (C.lookupType . convertString) funcRet
-        args <- mapM convertTypedArg funcArgs
-        C.addFuncDef ret (convertString funcName) args $ bodyCodegen args
+        maybe (globalCase ret) (classCase ret) =<< C.getActiveClass
       where
-        bodyCodegen args = do
+        fromName (AST.Name s) = s
+        fromName _ = error "fromName failed"
+        globalCase ret = do
+            args <- mapM convertTypedArg funcArgs
+            C.addFuncDef ret (convertString funcName) args $
+                bodyCodegenGlobal args
+        bodyCodegenGlobal args = do
             mapM_ codegenArgument args
             C.toCodegen funcBody
         codegenArgument (argType,argName) = do
             addr <- C.alloca argType
             () <$ (C.store addr $ AST.LocalReference argType argName)
             C.addVariable (fromName argName) addr
-        fromName (AST.Name s) = s
-        fromName _ = error "fromName failed"
+        classCase ret className = do
+            ptrType <- C.classPointerType className
+            let thisArg = (ptrType, "this")
+                mangledFuncName =
+                    mangleClassMethodName
+                        (convertString className)
+                        (convertString funcName)
+            args <- (thisArg :) <$> mapM convertTypedArg funcArgs
+            C.addFuncDef ret mangledFuncName args $ bodyCodegenClass args
+        bodyCodegenClass args = do
+            let (thisType,thisName) = head args
+            C.addVariable (fromName thisName) $
+                AST.LocalReference thisType thisName
+            mapM_ codegenArgument $ tail args
+            C.toCodegen funcBody
 
 instance C.ToLLVM OT.ClassDef where
     -- TODO: inheritance
@@ -167,7 +188,7 @@ instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
 
 instance C.ToLLVM OT.ClassStmt where
-    toLLVM OT.ClassStmt{csAccess = _,csPayload = Left f} = undefined
+    toLLVM OT.ClassStmt{csAccess = _,csPayload = Left f} = C.toLLVM f
     toLLVM OT.ClassStmt{csAccess = _,csPayload = Right v} = C.toLLVM v
 
 --------------------------------------------------------------------------------
