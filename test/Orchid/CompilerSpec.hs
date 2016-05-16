@@ -2,7 +2,9 @@
 
 -- | Compiler specification.
 
-module Orchid.CompilerSpec where
+module Orchid.CompilerSpec
+       ( spec
+       ) where
 
 import           Data.FileEmbed          (embedStringFile)
 import           Data.String             (IsString)
@@ -14,21 +16,22 @@ import           Test.Hspec              (Spec, describe, it, shouldBe)
 import           Turtle                  (procStrict)
 
 import           Orchid.Compiler         (compileStr)
+import           Orchid.Util             (testPath)
 
 factorial_ioInput
     :: IsString s
     => s
-factorial_ioInput = $(embedStringFile "test/data/factorial_io.orc")
+factorial_ioInput = $(embedStringFile $ testPath "factorial_io.orc")
 
 classInput
     :: IsString s
     => s
-classInput = $(embedStringFile "test/data/class.orc")
+classInput = $(embedStringFile $ testPath "class.orc")
 
 errorInput
     :: IsString s
     => s
-errorInput = $(embedStringFile "test/data/error.orc")
+errorInput = $(embedStringFile $ testPath "error.orc")
 
 programOutput :: Text -> Text -> IO Text
 programOutput programSource programInput = withSystemTempDirectory "patak" cb

@@ -59,6 +59,7 @@ test-suite orchid-test
                        Orchid.CompilerSpec
                        Orchid.LexerSpec
                        Orchid.ParserSpec
+                       Orchid.Util
                        Spec
   type:                exitcode-stdio-1.0
   build-depends:       base >= 4.8
