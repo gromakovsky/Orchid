@@ -1,6 +1,6 @@
 -- | Lexer specification.
 
-module Orchid.LexerSpec
+module Test.Orchid.LexerSpec
        ( spec
        ) where
 
@@ -14,7 +14,7 @@ import           Test.Hspec.QuickCheck (prop)
 import           Orchid.Lexer          (firstToken, tokenizeInput)
 import           Orchid.Token          (Token (..), tokenRepr)
 
-import           Orchid.Arbitrary      (PrintableToken (..))
+import           Test.Orchid.Arbitrary (PrintableToken (..))
 
 spec :: Spec
 spec =

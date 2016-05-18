@@ -1,6 +1,6 @@
 -- | Arbitrary instances for various Orchid-related types.
 
-module Orchid.Arbitrary
+module Test.Orchid.Arbitrary
        ( PrintableToken (..)
        ) where
 

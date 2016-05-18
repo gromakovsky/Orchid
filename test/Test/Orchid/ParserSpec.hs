@@ -1,6 +1,6 @@
 -- | Parser specification.
 
-module Orchid.ParserSpec
+module Test.Orchid.ParserSpec
        ( spec
        ) where
 

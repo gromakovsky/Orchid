@@ -1,13 +1,9 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 -- | Compiler specification.
 
-module Orchid.CompilerSpec
+module Test.Orchid.CompilerSpec
        ( spec
        ) where
 
-import           Data.FileEmbed          (embedStringFile)
-import           Data.String             (IsString)
 import           Data.String.Conversions (convertString)
 import           Data.Text               (Text)
 import           System.FilePath         ((</>))
@@ -16,22 +12,21 @@ import           Test.Hspec              (Spec, describe, it, shouldBe)
 import           Turtle                  (procStrict)
 
 import           Orchid.Compiler         (compileStr)
-import           Orchid.Util             (testPath)
 
-factorial_ioInput
-    :: IsString s
-    => s
-factorial_ioInput = $(embedStringFile $ testPath "factorial_io.orc")
+import           Test.Orchid.Data
 
-classInput
-    :: IsString s
-    => s
-classInput = $(embedStringFile $ testPath "class.orc")
-
-errorInput
-    :: IsString s
-    => s
-errorInput = $(embedStringFile $ testPath "error.orc")
+spec :: Spec
+spec =
+    describe "Compiler" $ do
+        describe "compileStr" $ do
+            it "Compiles code in Orchid language" $ do
+                checkOutput factorial_ioInput "6\n" "720\n"
+                checkOutput factorial_ioInput "6\n" "720\n"
+                checkOutput classInput "" "42\n"
+                checkOutput errorInput "" "Error occurred\n"
+  where
+    checkOutput prSource prInput prOutput =
+        shouldBe prOutput =<< programOutput prSource prInput
 
 programOutput :: Text -> Text -> IO Text
 programOutput programSource programInput = withSystemTempDirectory "patak" cb
@@ -48,14 +43,3 @@ programOutput programSource programInput = withSystemTempDirectory "patak" cb
         snd <$>
             (procStrict "lli" [convertString $ dir </> "a.ll"] $
              pure programInput)
-
-spec :: Spec
-spec =
-    describe "Compiler" $ do
-        describe "compileStr" $ do
-            it "Properly compiles factorial_io.orc" $
-                shouldBe "720\n" =<< programOutput factorial_ioInput "6\n"
-            it "Properly compiles class.orc" $
-                shouldBe "42\n" =<< programOutput classInput ""
-            it "Properly compiles error.orc" $
-                shouldBe "Error occurred\n" =<< programOutput errorInput ""

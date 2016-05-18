@@ -55,11 +55,12 @@ executable orchid
 
 test-suite orchid-test
   main-is:             Test.hs
-  other-modules:       Orchid.Arbitrary
-                       Orchid.CompilerSpec
-                       Orchid.LexerSpec
-                       Orchid.ParserSpec
-                       Orchid.Util
+  other-modules:       Test.Orchid.Arbitrary
+                       Test.Orchid.CompilerSpec
+                       Test.Orchid.Data
+                       Test.Orchid.LexerSpec
+                       Test.Orchid.ParserSpec
+                       Test.Orchid.Util
                        Spec
   type:                exitcode-stdio-1.0
   build-depends:       base >= 4.8

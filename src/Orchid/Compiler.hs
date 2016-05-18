@@ -11,7 +11,7 @@ module Orchid.Compiler
        ) where
 
 import           Control.Exception (catch)
-import           Data.FileEmbed    (embedStringFile)
+import           Data.FileEmbed    (embedStringFile, makeRelativeToProject)
 import           Data.String       (IsString)
 import           Data.Text         (Text)
 import qualified Data.Text.IO      as TIO
@@ -38,7 +38,8 @@ data CompilerExtra = CompilerExtra
 orchidPreludeStr
     :: IsString s
     => s
-orchidPreludeStr = $(embedStringFile "src/prelude.orc")
+orchidPreludeStr =
+    $(makeRelativeToProject "src/prelude.orc" >>= embedStringFile)
 
 orchidPrelude :: Input
 orchidPrelude =
@@ -46,15 +47,20 @@ orchidPrelude =
     parseInput "prelude" orchidPreludeStr
 
 compileStr :: Text -> FilePath -> IO ()
-compileStr inputText outFp = do
-    let Right input = parseInput "<text>" inputText
-    translateToFile outFp (mconcat [orchidPrelude, input])
+compileStr inputText outFp =
+    either print (doTranslate outFp) $ parseInput "<text>" inputText
+
+doTranslate :: FilePath -> Input -> IO ()
+doTranslate outFp input =
+    translateToFile outFp (mconcat [orchidPrelude, input]) `catch`
+    handleCodegenException
+  where
+    handleCodegenException (CodegenException t) = TIO.putStrLn t
 
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do
     input <- parseInputFile coInputFile
-    translateToFile coOutputFile (mconcat [orchidPrelude, input]) `catch`
-        handleCodegenException
+    doTranslate coOutputFile input
     ceTokens <-
         if coReturnTokens
             then Just <$> tokenizeInputFile coInputFile
@@ -66,5 +72,3 @@ compile CompilerOptions{..} = do
               else Nothing
         , ..
         }
-  where
-    handleCodegenException (CodegenException t) = TIO.putStrLn t

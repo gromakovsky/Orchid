@@ -1,6 +1,6 @@
 -- | Utilities for tests.
 
-module Orchid.Util
+module Test.Orchid.Util
        ( testPath
        ) where
 
