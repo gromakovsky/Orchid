@@ -13,7 +13,7 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 - [x] functions
 - [x] comments
 - [x] simple IO with basic error handling
-- [ ] user-defined classes
+- [x] user-defined classes
 
 ## Syntax
 
@@ -147,6 +147,7 @@ The only officially supported way to build this compiler is to use [stack](http:
 
 - LLVM 3.5
 - stack
+- `llvm-as` and `lli` are needed to run tests
 
 Note that by default stack will download and install correct version of `GHC` into isolated environment, that's why GHC is not listed in list of dependencies. You can modify this behavior by specifying `system-ghc: True` in [stack.yaml](stack.yaml). However, it may break compilation on some systems.
 
@@ -159,4 +160,3 @@ If you want to run tests use `stack test Orchid` command.
 ## Known bugs
 
 - return is required even if function returns void
-- there is almost no checks ☹
