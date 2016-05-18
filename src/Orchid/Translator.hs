@@ -1,7 +1,9 @@
 {-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 
 -- | Translator transforms AST into LLVM representation.
 
@@ -49,9 +51,9 @@ translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
             preludeVariables
     preludeFunctions =
         M.fromList
-            [ ("stdReadInt", C.int64)
-            , ("stdWriteInt", C.void)
-            , ("stdExit", C.void)]
+            [ ("stdReadInt", C.FunctionData OT.TInt64 [])
+            , ("stdWriteInt", C.FunctionData OT.TVoid [OT.TInt64])
+            , ("stdExit", C.FunctionData OT.TVoid [OT.TInt64])]
     preludeClasses = M.empty
     preludeVariables = M.empty
 
@@ -98,14 +100,13 @@ handleFatalError =
     either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
     runExceptT
 
-convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, C.Name)
+convertTypedArg :: OT.TypedArgument -> C.LLVM (OT.Type, C.Name)
 convertTypedArg OT.TypedArgument{..} =
     (, C.Name (convertString taName)) <$>
     C.lookupType (convertString taType)
 
--- TODO: take class name into account!
 mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
-mangleClassMethodName _ funcName = mconcat ["", "$$", funcName]
+mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
 
 --------------------------------------------------------------------------------
 -- C.ToLLVM
@@ -146,7 +147,7 @@ instance C.ToLLVM OT.CompoundStmt where
 
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
-        ret <- maybe (return C.void) (C.lookupType . convertString) funcRet
+        ret <- maybe (return OT.TVoid) (C.lookupType . convertString) funcRet
         maybe (globalCase ret) (classCase ret) =<< C.getActiveClass
       where
         fromName (AST.Name s) = s
@@ -160,11 +161,13 @@ instance C.ToLLVM OT.FuncDef where
             C.toCodegen funcBody
         codegenArgument (argType,argName) = do
             addr <- C.alloca argType
-            () <$ (C.store addr $ AST.LocalReference argType argName)
-            C.addVariable (fromName argName) addr
+            C.store addr $
+                ( argType
+                , AST.LocalReference (C.orchidTypeToLLVM argType) argName)
+            C.addVariable (fromName argName) argType addr
         classCase ret className = do
             ptrType <- C.classPointerType className
-            let thisArg = (ptrType, "this")
+            let thisArg = (ptrType, C.thisPtrName)
                 mangledFuncName =
                     mangleClassMethodName
                         (convertString className)
@@ -173,8 +176,9 @@ instance C.ToLLVM OT.FuncDef where
             C.addFuncDef ret mangledFuncName args $ bodyCodegenClass args
         bodyCodegenClass args = do
             let (thisType,thisName) = head args
-            C.addVariable (fromName thisName) $
-                AST.LocalReference thisType thisName
+            C.addVariable (fromName thisName) thisType $
+                ( OT.TPointer thisType
+                , AST.LocalReference (C.orchidTypeToLLVM thisType) thisName)
             mapM_ codegenArgument $ tail args
             C.toCodegen funcBody
 
@@ -214,8 +218,8 @@ instance C.ToCodegen OT.DeclStmt () where
         t <- C.lookupType $ convertString dsType
         addr <- C.alloca t
         val <- C.toCodegen dsExpr
-        () <$ C.store addr val
-        C.addVariable (convertString dsVar) addr
+        C.store addr val
+        C.addVariable (convertString dsVar) t addr
 
 instance C.ToCodegen OT.ExprStmt () where
     toCodegen OT.ExprStmt{..} = do
@@ -224,16 +228,16 @@ instance C.ToCodegen OT.ExprStmt () where
       where
         assign val var = do
             addr <- C.getPtr $ convertString var
-            () <$ C.store addr val
+            C.store addr val
 
 instance C.ToCodegen OT.FlowStmt () where
     toCodegen (OT.FSReturn rs) = C.toCodegen rs
 
 instance C.ToCodegen OT.ReturnStmt () where
     toCodegen (OT.ReturnStmt me) =
-        () <$ maybe (C.ret Nothing) (C.ret . Just <=< C.toCodegen) me
+        () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toCodegen) me
 
-instance C.ToCodegen OT.Expr AST.Operand where
+instance C.ToCodegen OT.Expr C.TypedOperand where
     toCodegen (OT.EUnary uOp a) = C.toCodegen a >>= convertUnOp uOp
       where
         convertUnOp OT.UnaryPlus = pure
@@ -263,24 +267,29 @@ instance C.ToCodegen OT.Expr AST.Operand where
                     C.call f [a', b']
     toCodegen (OT.EAtom a) = C.toCodegen a
 
-instance C.ToCodegen OT.AtomExpr AST.Operand where
+instance C.ToCodegen OT.AtomExpr C.TypedOperand where
     toCodegen (OT.AEAtom a) = C.toCodegen a
     toCodegen (OT.AECall (OT.AEAccess (OT.AEAtom (OT.AIdentifier varName)) fieldName) exprs) = do
         varPtr <- C.getPtr $ convertString varName
-        fPtr <-
-            C.getValue $
-            mangleClassMethodName undefined $ convertString fieldName
-        args <- (varPtr :) <$> mapM C.toCodegen exprs
-        C.call fPtr args
+        case varPtr of
+            (OT.TPointer (OT.TClass className _), _) -> do
+                fPtr <-
+                    C.lookupName . convertString $
+                    mangleClassMethodName className fieldName
+                args <- (varPtr :) <$> mapM C.toCodegen exprs
+                C.call fPtr args
+            _ ->
+                C.throwCodegenError
+                    "attempt to call method of something strange"
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
     toCodegen (OT.AEAccess _ _) = C.throwCodegenError "TODO"
 
-instance C.ToCodegen OT.Atom AST.Operand where
+instance C.ToCodegen OT.Atom C.TypedOperand where
     toCodegen (OT.AExpr e) = C.toCodegen e
-    toCodegen (OT.AIdentifier v) = C.getValue $ convertString v
-    toCodegen (OT.ANumber n) = AST.ConstantOperand <$> C.toConstant n
-    toCodegen (OT.ABool b) = AST.ConstantOperand <$> C.toConstant b
+    toCodegen (OT.AIdentifier v) = C.lookupName $ convertString v
+    toCodegen (OT.ANumber n) = (OT.TInt64,) . AST.ConstantOperand <$> C.toConstant n
+    toCodegen (OT.ABool b) = (OT.TBool,) . AST.ConstantOperand <$> C.toConstant b
 
 instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSIf s) = C.toCodegen s

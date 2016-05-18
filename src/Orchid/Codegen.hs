@@ -11,6 +11,11 @@ module Orchid.Codegen
        (
          -- Helpers
          throwCodegenError
+       , thisPtrName
+
+         -- Useful types
+       , FunctionData (..)
+       , TypedOperand
 
          -- Codegen
        , Codegen
@@ -21,7 +26,7 @@ module Orchid.Codegen
 
          -- Symbol table
        , addVariable
-       , getValue
+       , lookupName
        , getPtr
 
          -- Block stack
@@ -68,7 +73,7 @@ module Orchid.Codegen
          -- Control Flow
        , br
        , cbr
-       , phi
+       -- , phi
        , ret
 
          -- Module level
@@ -85,34 +90,34 @@ module Orchid.Codegen
        , finishClassDef
 
          -- Types
-       , int64
-       , bool
        , lookupType
        , classPointerType
+       , orchidTypeToLLVM
 
          -- Reexports
-       , Type (..)
-       , void
        , AST.Name (..)
        ) where
 
 import           Control.Applicative                ((<|>))
 import           Control.Lens                       (Lens', at, makeLenses,
-                                                     makeLensesFor, use, view,
-                                                     (%=), (+=), (.=), (.~),
-                                                     (<>=), (<>~), (^.), _Just)
+                                                     makeLensesFor, to, use,
+                                                     view, (%=), (+=), (.=),
+                                                     (.~), (<>=), (<>~), (^.),
+                                                     _2, _Just)
 import           Control.Monad                      (unless, when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
                                                      runExceptT)
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
+import           Data.Bifunctor                     (first)
 import           Data.Function                      (on, (&))
 import           Data.Int                           (Int32, Int64)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
 import           Data.Maybe                         (isJust)
 import           Data.String                        (IsString (fromString))
+import           Data.String.Conversions            (convertString)
 import           Data.Text                          (Text)
 import           Data.Text.Buildable                (Buildable (build))
 import qualified LLVM.General.AST                   as AST
@@ -122,12 +127,15 @@ import qualified LLVM.General.AST.CallingConvention as CC
 import qualified LLVM.General.AST.Constant          as C
 import qualified LLVM.General.AST.Global            as G
 import qualified LLVM.General.AST.IntegerPredicate  as IP
-import           LLVM.General.AST.Type              (Type (..), i1, i64, void)
+import qualified LLVM.General.AST.Type              as T (Type (..), i1, i64,
+                                                          void)
 import           Prelude                            hiding (and, div, mod, not,
                                                      or)
-import           Serokell.Util                      (formatSingle')
+import qualified Prelude
+import           Serokell.Util                      (format', formatSingle')
 
 import           Orchid.Error                       (CodegenException (CodegenException))
+import           Orchid.Types                       (Type (..))
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -155,6 +163,23 @@ instance Buildable AST.Name where
 
 type Named = AST.Named
 
+thisPtrName :: IsString s => s
+thisPtrName = "this"
+
+orchidTypeToLLVM :: Type -> T.Type
+orchidTypeToLLVM TInt64 = T.i64
+orchidTypeToLLVM TBool = T.i1
+orchidTypeToLLVM TVoid = T.void
+orchidTypeToLLVM (TPointer t) =
+    T.PointerType (orchidTypeToLLVM t) (AddrSpace 0)
+orchidTypeToLLVM (TFunction retType argTypes) =
+    T.FunctionType
+        (orchidTypeToLLVM retType)
+        (map orchidTypeToLLVM argTypes)
+        False
+orchidTypeToLLVM (TClass _ types) =
+    T.StructureType False $ map orchidTypeToLLVM types
+
 -------------------------------------------------------------------------------
 -- Codegen State
 -------------------------------------------------------------------------------
@@ -178,15 +203,34 @@ data BlockState = BlockState
 
 $(makeLenses ''BlockState)
 
-type BlockMap = M.Map AST.Name BlockState
+type BlocksMap = M.Map AST.Name BlockState
 
--- | FIXME: add type
-type VariableData = AST.Operand
+data VariableData = VariableData
+    { vdType       :: Type
+    , vdPtrOperand :: AST.Operand
+    } deriving (Show)
+
+variableDataToTypedOperand :: VariableData -> TypedOperand
+variableDataToTypedOperand VariableData {..} = (vdType, vdPtrOperand)
+
 type VariablesMap = M.Map String VariableData
 
--- | FIXME: add argument types
-type FunctionData = Type
+data FunctionData = FunctionData
+    { fdRetType  :: Type
+    , fdArgTypes :: [Type]
+    } deriving (Show)
+
+functionDataToType :: FunctionData -> Type
+functionDataToType FunctionData{..} = TFunction fdRetType fdArgTypes
+
+typeToFunctionData :: Type -> Maybe FunctionData
+typeToFunctionData (TFunction retType argTypes) =
+    Just $ FunctionData retType argTypes
+typeToFunctionData _ = Nothing
+
 type FunctionsMap = M.Map String FunctionData
+
+type TypedOperand = (Type, AST.Operand)
 
 -- | ClassVariable type represents variable defined inside class
 -- body. It has a type and initial value (used for construction).
@@ -202,9 +246,9 @@ data ClassData = ClassData
     { _cdVariables :: M.Map String ClassVariable
     } deriving (Show)
 
-type ClassesMap = M.Map String ClassData
-
 $(makeLenses ''ClassData)
+
+type ClassesMap = M.Map String ClassData
 
 -- | CodegenState represents all the state used by function body
 -- generator.
@@ -214,7 +258,7 @@ data CodegenState = CodegenState
       _csCurrentBlock :: AST.Name
     ,
       -- ^ Blocks within a function body.
-      _csBlocks       :: BlockMap
+      _csBlocks       :: BlocksMap
     ,
       -- ^ Global functions.
       _csFunctions    :: FunctionsMap
@@ -319,13 +363,12 @@ genUnnamed = do
     csCount += 1
     AST.UnName <$> use csCount
 
-instr :: AST.Instruction -> Codegen AST.Operand
-instr ins = do
+instr :: Type -> AST.Instruction -> Codegen TypedOperand
+instr retType ins = do
     name <- genUnnamed
     currentBlock <- getCurrentBlock
     setCurrentBlock $ currentBlock & bsInstructions <>~ [name AST.:= ins]
-    -- FIXME: pass type somehow
-    return $ AST.LocalReference int64 name
+    return $ (retType, AST.LocalReference (orchidTypeToLLVM retType) name)
 
 terminator :: Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
 terminator trm =
@@ -385,13 +428,16 @@ codegenActiveClassData :: Codegen (Maybe ClassData)
 codegenActiveClassData =
     maybe (return Nothing) (\n -> use $ csClasses . at n) =<< use csActiveClass
 
--- | Add variable with given name and address.
-addVariable :: String -> AST.Operand -> Codegen ()
-addVariable varName varAddr = do
+-- | Add variable with given name, type and address.
+addVariable :: String -> Type -> TypedOperand -> Codegen ()
+addVariable varName varType typedVarAddr@(_,varAddr) = do
+    checkTypes "addVariable" [TPointer varType] [typedVarAddr]
     exists <- M.member varName <$> use csVariables
     when exists $ throwCodegenError $
         formatSingle' "variable name is already in scope: {}" varName
-    csVariables . at varName .= Just varAddr
+    csVariables . at varName .= Just varData
+  where
+    varData = VariableData varType varAddr
 
 reportNotInScope :: String -> Codegen a
 reportNotInScope =
@@ -399,37 +445,45 @@ reportNotInScope =
 
 -- | Get value of variable with given name. Functions are treated as
 -- variable too, but function's address is not dereferenced.
-getValue :: String -> Codegen AST.Operand
-getValue var = do
+lookupName :: String -> Codegen TypedOperand
+lookupName var = do
     f <- fmap constructF <$> use (csFunctions . at var)
     v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
     maybe (reportNotInScope var) return $ v <|> f
   where
-    constructF t = AST.ConstantOperand . C.GlobalReference t $ AST.Name var
+    constructF fd@FunctionData {..} =
+        ( functionDataToType fd
+        , AST.ConstantOperand . C.GlobalReference (orchidTypeToLLVM fdRetType) $
+          AST.Name var)
 
 -- | Get address of variable with given name. Functions are not
 -- considered by this function.
-getPtr :: String -> Codegen AST.Operand
+getPtr :: String -> Codegen TypedOperand
 getPtr varName =
     maybe (reportNotInScope varName) return =<< getPtrMaybe varName
 
-getPtrMaybe :: String -> Codegen (Maybe AST.Operand)
+getPtrMaybe :: String -> Codegen (Maybe TypedOperand)
 getPtrMaybe varName =
-    (<|>) <$> use (csVariables . at varName) <*> getMemberPtr varName
+    (<|>) <$>
+    use
+        (csVariables .
+         at varName . to (fmap (first TPointer . variableDataToTypedOperand))) <*>
+    getMemberPtr varName
 
-getMemberPtr :: String -> Codegen (Maybe AST.Operand)
+getMemberPtr :: String -> Codegen (Maybe TypedOperand)
 getMemberPtr varName
-  | varName == "this" = pure Nothing
+  | varName == thisPtrName = pure Nothing
   | otherwise =
       maybe (pure Nothing) (getMemberPtrDo varName) =<< codegenActiveClassData
 
-getMemberPtrDo :: String -> ClassData -> Codegen (Maybe AST.Operand)
+getMemberPtrDo :: String -> ClassData -> Codegen (Maybe TypedOperand)
 getMemberPtrDo varName cd = do
-    thisPtr <- getPtr "this"
+    (_, thisPtr) <- getPtr thisPtrName
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
         Just i ->
-            fmap Just . instr $
+            fmap Just .
+            instr (TPointer $ M.elemAt i (cd ^. cdVariables) ^. _2 . cvType) $
             AST.GetElementPtr
                 False
                 thisPtr
@@ -441,60 +495,84 @@ getMemberPtrDo varName cd = do
 -- Unary operations
 -------------------------------------------------------------------------------
 
-neg :: AST.Operand -> Codegen AST.Operand
-neg = sub $ AST.ConstantOperand $ constInt64 0
+neg :: TypedOperand -> Codegen TypedOperand
+neg = sub $ (TInt64, AST.ConstantOperand $ constInt64 0)
 
-not :: AST.Operand -> Codegen AST.Operand
-not = xor $ AST.ConstantOperand $ constBool True
+not :: TypedOperand -> Codegen TypedOperand
+not = xor $ (TBool, AST.ConstantOperand $ constBool True)
 
 -------------------------------------------------------------------------------
 -- Binary operations
 -------------------------------------------------------------------------------
 
-or :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-or a b = instr $ AST.Or a b []
+checkTypes :: String -> [Type] -> [TypedOperand] -> Codegen ()
+checkTypes funcName expectedTypes args
+  | length expectedTypes /= length args =
+      throwCodegenError $
+      formatSingle' "{}: incorrect number of arguments" funcName
+  | Prelude.and $ zipWith (\t (t',_) -> t == t') expectedTypes args =
+      return ()
+  | otherwise =
+      throwCodegenError $ formatSingle' "{}: incorrect argument type" funcName
 
-and :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-and a b = instr $ AST.And a b []
+or :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+or op1@(_,a) op2@(_,b) =
+    checkTypes "or" [TBool, TBool] [op1, op2] >> instr TBool (AST.Or a b [])
 
-xor :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-xor a b = instr $ AST.Xor a b []
+and :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+and op1@(_,a) op2@(_,b) =
+    checkTypes "and" [TBool, TBool] [op1, op2] >> instr TBool (AST.And a b [])
 
-cmp :: IP.IntegerPredicate -> AST.Operand -> AST.Operand -> Codegen AST.Operand
-cmp cond a b = instr $ AST.ICmp cond a b []
+xor :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+xor op1@(_,a) op2@(_,b) =
+    checkTypes "xor" [TBool, TBool] [op1, op2] >> instr TBool (AST.Xor a b [])
 
-lessThan :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+cmp :: IP.IntegerPredicate -> TypedOperand -> TypedOperand -> Codegen TypedOperand
+cmp cond op1@(_,a) op2@(_,b) =
+    checkTypes "cmp" [TInt64, TInt64] [op1, op2] >>
+    instr TBool (AST.ICmp cond a b [])
+
+lessThan :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 lessThan = cmp IP.SLT
 
-greaterThan :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+greaterThan :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 greaterThan = cmp IP.SGT
 
-equal :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+equal :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 equal = cmp IP.EQ
 
-lessOrEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+lessOrEqual :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 lessOrEqual = cmp IP.SLE
 
-notEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+notEqual :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 notEqual = cmp IP.NE
 
-greaterOrEqual :: AST.Operand -> AST.Operand -> Codegen AST.Operand
+greaterOrEqual :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 greaterOrEqual = cmp IP.SGE
 
-add :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-add a b = instr $ AST.Add False False a b []
+add :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+add op1@(_,a) op2@(_,b) =
+    checkTypes "add" [TInt64, TInt64] [op1, op2] >>
+    instr TInt64 (AST.Add False False a b [])
 
-sub :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-sub a b = instr $ AST.Sub False False a b []
+sub :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+sub op1@(_,a) op2@(_,b) =
+    checkTypes "sub" [TInt64, TInt64] [op1, op2] >>
+    instr TInt64 (AST.Sub False False a b [])
 
-mul :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-mul a b = instr $ AST.Mul False False a b []
+mul :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+mul op1@(_,a) op2@(_,b) =
+    checkTypes "mul" [TInt64, TInt64] [op1, op2] >>
+    instr TInt64 (AST.Mul False False a b [])
 
-div :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-div a b = instr $ AST.SDiv False a b []
+div :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+div op1@(_,a) op2@(_,b) =
+    checkTypes "div" [TInt64, TInt64] [op1, op2] >>
+    instr TInt64 (AST.SDiv False a b [])
 
-mod :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-mod a b = instr $ AST.SRem a b []
+mod :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+mod op1@(_,a) op2@(_,b) =
+    checkTypes "mod" [TInt64, TInt64] [op1, op2] >> instr TInt64 (AST.SRem a b [])
 
 -------------------------------------------------------------------------------
 -- Constants
@@ -540,25 +618,42 @@ complexConstant constructorName _ = do
         C.Struct Nothing False .
         map (view cvInitializer) . M.elems . view cdVariables
 
-
 -------------------------------------------------------------------------------
 -- Effects
 -------------------------------------------------------------------------------
 
-toArgs :: [AST.Operand] -> [(AST.Operand, [A.ParameterAttribute])]
-toArgs = map (\x -> (x, []))
+toArgs :: [TypedOperand] -> [(AST.Operand, [A.ParameterAttribute])]
+toArgs = map (\(_, x) -> (x, []))
 
-call :: AST.Operand -> [AST.Operand] -> Codegen AST.Operand
-call fn args = instr $ AST.Call Nothing CC.C [] (Right fn) (toArgs args) [] []
+call :: TypedOperand -> [TypedOperand] -> Codegen TypedOperand
+call (fnType,fnOperand) args =
+    maybe
+        (throwCodegenError "attempt to call something that is not a function")
+        callDo $
+    typeToFunctionData fnType
+  where
+    callDo FunctionData{..} = do
+        checkTypes "call" fdArgTypes args
+        instr fdRetType $
+            AST.Call Nothing CC.C [] (Right fnOperand) (toArgs args) [] []
 
-alloca :: Type -> Codegen AST.Operand
-alloca ty = instr $ AST.Alloca ty Nothing 0 []
+alloca :: Type -> Codegen TypedOperand
+alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []
 
-store :: AST.Operand -> AST.Operand -> Codegen AST.Operand
-store ptr val = instr $ AST.Store False ptr val Nothing 0 []
+store :: TypedOperand -> TypedOperand -> Codegen ()
+store (ptrType,ptr) (valType,val) = do
+    unless (ptrType == TPointer valType) $
+        throwCodegenError $
+        format'
+            "can't store value of type {} to the pointer of type {}"
+            (show valType, show ptrType)
+    () <$ instr TVoid (AST.Store False ptr val Nothing 0 [])
 
-load :: AST.Operand -> Codegen AST.Operand
-load ptr = instr $ AST.Load False ptr Nothing 0 []
+load :: TypedOperand -> Codegen TypedOperand
+load (TPointer t, ptr) = instr t $ AST.Load False ptr Nothing 0 []
+load (t,_) =
+    throwCodegenError $
+    formatSingle' "value of type {} was given to load" $ show t
 
 -------------------------------------------------------------------------------
 -- Control Flow
@@ -567,11 +662,13 @@ load ptr = instr $ AST.Load False ptr Nothing 0 []
 br :: AST.Name -> Codegen (AST.Named AST.Terminator)
 br = terminator . AST.Do . flip AST.Br []
 
-cbr :: AST.Operand -> AST.Name -> AST.Name -> Codegen (AST.Named AST.Terminator)
-cbr cond tr fl = terminator $ AST.Do $ AST.CondBr cond tr fl []
+cbr :: TypedOperand -> AST.Name -> AST.Name -> Codegen (AST.Named AST.Terminator)
+cbr c@(_,cond) tr fl =
+    checkTypes "cbr" [TBool] [c] >>
+    (terminator $ AST.Do $ AST.CondBr cond tr fl [])
 
-phi :: Type -> [(AST.Operand, AST.Name)] -> Codegen AST.Operand
-phi ty incoming = instr $ AST.Phi ty incoming []
+-- phi :: Type -> [(AST.Operand, AST.Name)] -> Codegen AST.Operand
+-- phi ty incoming = instr $ AST.Phi ty incoming []
 
 ret :: Maybe AST.Operand -> Codegen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
@@ -580,16 +677,13 @@ ret = terminator . AST.Do . flip AST.Ret []
 -- Types
 -------------------------------------------------------------------------------
 
-int64, bool :: Type
-int64 = i64
-bool = i1
-
 predefinedTypes :: M.Map String Type
-predefinedTypes = M.fromList [("int64", int64), ("bool", bool)]
+predefinedTypes = M.fromList [("int64", TInt64), ("bool", TBool)]
 
-classType :: ClassData -> Type
-classType =
-    StructureType False . map (view cvType) . M.elems . view cdVariables
+classType :: String -> ClassData -> Type
+classType className =
+    TClass (convertString className) .
+    map (view cvType) . M.elems . view cdVariables
 
 lookupType
     :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
@@ -598,7 +692,7 @@ lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
   where
     throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
     tryClass =
-        maybe throwUnknownType (return . classType) =<< use (classesLens . at t)
+        maybe throwUnknownType (return . classType t) =<< use (classesLens . at t)
 
 classPointerType
     :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
@@ -606,7 +700,7 @@ classPointerType
 classPointerType t =
     maybe
         throwUnknownType
-        (return . flip PointerType (AddrSpace 0) . classType) =<<
+        (return . TPointer  . classType t) =<<
     use (classesLens . at t)
   where
     throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
@@ -677,7 +771,7 @@ addDefn d = msModule . mDefinitions <>= [d]
 -- module. This function sets active class for given codegen.
 addFuncDef
     :: (ToCodegen a r)
-    => AST.Type -> String -> [(AST.Type, AST.Name)] -> a -> LLVM ()
+    => Type -> String -> [(Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
     funcs <- use msFunctions
     classes <- use msClasses
@@ -690,42 +784,53 @@ addFuncDef retType funcName args suite = do
                 G.functionDefaults
                 { G.name = funcName'
                 , G.parameters = parameters
-                , G.returnType = retType
+                , G.returnType = orchidTypeToLLVM retType
                 , G.basicBlocks = body
                 }
-            msFunctions . at funcName .= Just retType
+            msFunctions . at funcName .= Just funcData
   where
     funcName' = AST.Name funcName
+    funcData =
+        FunctionData
+        { fdRetType = retType
+        , fdArgTypes = map fst args
+        }
     bodyEither funcs classes vars activeClass =
         execCodegen funcs classes vars activeClass (toCodegen suite) >>=
         createBlocks
-    parameters = ([G.Parameter t n [] | (t,n) <- args], False)
+    parameters = ([G.Parameter (orchidTypeToLLVM t) n [] | (t,n) <- args], False)
 
 -- | Outside class this function adds global variable with given type
 -- and name to module. Inside class definition it adds given variable
 -- as part of class.
 addGlobalVariable
     :: (ToConstant a)
-    => AST.Type -> String -> a -> LLVM ()
+    => Type -> String -> a -> LLVM ()
 addGlobalVariable varType varName varExpr = do
     value <- toConstant varExpr
     cls <- use msClass
     maybe addToGlobal addToClass cls $ value
   where
     varName' = AST.Name varName
+    varType' = orchidTypeToLLVM varType
+    varData =
+        VariableData
+        { vdType = varType
+        , vdPtrOperand = (AST.ConstantOperand $ C.GlobalReference varType' $
+                          varName')
+        }
     addToGlobal value = do
         addDefn $ AST.GlobalDefinition $
             G.globalVariableDefaults
             { G.name = varName'
-            , G.type' = varType
+            , G.type' = varType'
             , G.initializer = Just value
             }
-        msVariables . at varName .=
-            Just (AST.ConstantOperand $ C.GlobalReference varType $ varName')
+        msVariables . at varName .= Just varData
     addToClass cls value = do
         msClasses . at cls . _Just . cdVariables %=
-            (M.insert varName (varData value))
-    varData value =
+            (M.insert varName (clsVarData value))
+    clsVarData value =
         ClassVariable
         { _cvType = varType
         , _cvInitializer = value

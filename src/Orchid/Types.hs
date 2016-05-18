@@ -3,6 +3,7 @@
 module Orchid.Types
        ( Identifier
        , Number
+       , Type (..)
        , Input (..)
        , Stmt (..)
        , SimpleStmt (..)
@@ -33,6 +34,17 @@ import           Data.Text (Text)
 
 type Identifier = Text
 type Number = Int64
+
+-- | Types in Orchid.
+data Type
+    = TInt64
+    | TBool
+    | TVoid
+    | TPointer Type
+    | TFunction Type [Type]
+    | TClass Text
+             [Type]
+    deriving (Show, Eq)
 
 -- | Representation of input file passed to compiler.
 -- Input file contains list of statements.
