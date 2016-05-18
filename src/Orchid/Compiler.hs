@@ -10,7 +10,7 @@ module Orchid.Compiler
        , compile
        ) where
 
-import           Control.Exception (catch)
+import           Control.Exception (catch, throwIO)
 import           Data.FileEmbed    (embedStringFile, makeRelativeToProject)
 import           Data.String       (IsString)
 import           Data.Text         (Text)
@@ -48,19 +48,21 @@ orchidPrelude =
 
 compileStr :: Text -> FilePath -> IO ()
 compileStr inputText outFp =
-    either print (doTranslate outFp) $ parseInput "<text>" inputText
+    either print (doTranslate outFp False) $ parseInput "<text>" inputText
 
-doTranslate :: FilePath -> Input -> IO ()
-doTranslate outFp input =
+doTranslate :: FilePath -> Bool -> Input -> IO ()
+doTranslate outFp catchError input =
     translateToFile outFp (mconcat [orchidPrelude, input]) `catch`
     handleCodegenException
   where
-    handleCodegenException (CodegenException t) = TIO.putStrLn t
+    handleCodegenException e@(CodegenException t)
+      | catchError = TIO.putStrLn t
+      | otherwise = throwIO e
 
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do
     input <- parseInputFile coInputFile
-    doTranslate coOutputFile input
+    doTranslate coOutputFile True input
     ceTokens <-
         if coReturnTokens
             then Just <$> tokenizeInputFile coInputFile

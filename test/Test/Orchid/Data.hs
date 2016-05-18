@@ -6,6 +6,7 @@ module Test.Orchid.Data
        ( factorial_ioInput
        , classInput
        , errorInput
+       , type_errorInput
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -27,3 +28,8 @@ errorInput
     :: IsString s
     => s
 errorInput = $(embedStringFile $ testPath "error.orc")
+
+type_errorInput
+    :: IsString s
+    => s
+type_errorInput = $(embedStringFile $ testPath "type_error.orc")
