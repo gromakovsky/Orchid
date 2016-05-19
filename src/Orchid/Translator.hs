@@ -206,7 +206,6 @@ instance C.ToLLVM OT.ClassStmt where
         when (access == OT.AMPrivate) $
             C.makeFuncPrivate $ convertString $ OT.funcName f
     toLLVM OT.ClassStmt{csAccess = access,csPayload = Right v} = do
-        C.toLLVM v
         when (access == OT.AMPrivate) $
             C.makeVarPrivate $ convertString $ OT.dsVar v
 

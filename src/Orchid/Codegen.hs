@@ -932,8 +932,7 @@ addGlobalVariable
     => Type -> String -> a -> LLVM ()
 addGlobalVariable varType varName varExpr = do
     value <- toConstant varExpr
-    cls <- use msClass
-    maybe addToGlobal addToClass cls $ value
+    addToGlobal value
   where
     varName' = AST.Name varName
     varType' = orchidTypeToLLVM varType
@@ -951,15 +950,6 @@ addGlobalVariable varType varName varExpr = do
             , G.initializer = Just value
             }
         msVariables . at varName .= Just varData
-    addToClass cls value = do
-        msClasses . at cls . _Just . cdVariables %=
-            (M.insert varName (clsVarData value))
-    clsVarData value =
-        ClassVariable
-        { _cvType = varType
-        , _cvInitializer = value
-        , _cvPrivate = False
-        }
 
 -- | Make variable in active class private.
 makeVarPrivate :: String -> LLVM ()
@@ -1003,6 +993,7 @@ startClassDef className parent members = do
         addConstructor
         msClass .= Just className
         msClasses %= M.insert className newClass
+        mapM_ addClassVar members
     membersMap = M.fromList members
     addConstructor = do
         let memberTypes = map fst $ M.elems membersMap
@@ -1012,9 +1003,24 @@ startClassDef className parent members = do
             []
             constructorBody
     constructorBody =
-        ret .
-        Just . AST.ConstantOperand . C.Struct Nothing False . map snd . M.elems $
+        ret . Just . AST.ConstantOperand . C.Struct Nothing False . map snd .
+        M.elems $
         membersMap
+    addClassVar (varName,(varType,varInitializer)) = do
+        -- addToClass cls value = do
+        alreadyAdded <- M.member className <$> use msClasses
+        when alreadyAdded $ throwCodegenError $
+            format'
+                "variable {} is defined in class {} more than once"
+                (varName, className)
+        msClasses . at className . _Just . cdVariables . at varName .=
+            Just (clsVarData varType varInitializer)
+    clsVarData t value =
+        ClassVariable
+        { _cvType = t
+        , _cvInitializer = value
+        , _cvPrivate = False
+        }
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass
