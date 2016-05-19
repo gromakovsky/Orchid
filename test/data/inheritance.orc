@@ -1,11 +1,16 @@
 class A:
+    public int64 x = 10
+
     public def f():
-        stdWriteInt(1)
+        stdWriteInt(x)
         return
 
 class B(A):
+    public int64 y = 15
+
     public def ff():
         f()
+        stdWriteInt(x + y)
         return
 
 def main():
