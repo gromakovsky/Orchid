@@ -479,9 +479,11 @@ reportClassNotFound =
 lookupName :: String -> Codegen TypedOperand
 lookupName var = do
     f <- constructF True var
-    method <- maybe (return Nothing) constructMethod =<< use csActiveClass
+    classes <- classAndParents =<< use csActiveClass
+    methods <- mapM constructMethod classes
     v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
-    maybe (reportNotInScope var) return $ foldr (<|>) empty [f, method, v]
+    maybe (reportNotInScope var) return $
+        foldr (<|>) empty (v : methods ++ [f])
   where
     constructF considerPrivate name = do
         isPrivate <- S.member name <$> use csPrivateFunctions
@@ -559,6 +561,18 @@ getThisMemberPtr varName
           Just ptr ->
               maybe (pure Nothing) (getMemberPtrMaybe False ptr varName) =<<
               codegenActiveClassData
+
+classAndParents :: Maybe String -> Codegen [String]
+classAndParents Nothing = pure []
+classAndParents (Just className) = do
+    p <- parentClass className
+    (className :) <$> classAndParents p
+
+parentClass :: String -> Codegen (Maybe String)
+parentClass className = (>>= view cdParent) <$> use (csClasses . at className)
+
+isSubClass :: String -> String -> Codegen Bool
+isSubClass subC superC = elem superC <$> classAndParents (Just subC)
 
 -------------------------------------------------------------------------------
 -- Unary operations
@@ -705,6 +719,16 @@ complexConstant _ _ = throwCodegenError "constructors with arguments are not sup
 toArgs :: [TypedOperand] -> [(AST.Operand, [A.ParameterAttribute])]
 toArgs = map (\(_, x) -> (x, []))
 
+cast :: TypedOperand -> Type -> Codegen TypedOperand
+cast (t1@(TPointer (TClass origClass _)),origOperand) newType@(TPointer (TClass newClass _)) = do
+    isSC <- isSubClass (convertString origClass) (convertString newClass)
+    unless isSC $
+        throwCodegenError $
+        format' "cast from {} to {} is prohibited" (t1, newType)
+    instr newType $ AST.BitCast origOperand (orchidTypeToLLVM newType) []
+cast (t1,_) t2 =
+    throwCodegenError $ format' "cast from {} to {} is prohibited" (t1, t2)
+
 call :: TypedOperand -> [TypedOperand] -> Codegen TypedOperand
 call (fnType,fnOperand) args =
     maybe
@@ -721,12 +745,17 @@ call (fnType,fnOperand) args =
     maybePrependThis Nothing _ = pure args
     maybePrependThis (Just className) argTypes
       | length argTypes /= length args + 1 = pure args
-      | isPtrToClass className (head argTypes) =
-          (: args) <$> getPtr thisPtrName
-      | otherwise = pure args
-    isPtrToClass className (TPointer (TClass n _)) =
-        convertString className == n
-    isPtrToClass _ _ = False
+      | otherwise =
+          case unwrapClassPtr (head argTypes) of
+              Nothing -> pure args
+              Just expectedType -> do
+                  isSC <- isSubClass className expectedType
+                  if isSC
+                      then (: args) <$>
+                           (getPtr thisPtrName >>= flip cast (head argTypes))
+                      else pure args
+    unwrapClassPtr (TPointer (TClass n _)) = Just $ convertString n
+    unwrapClassPtr _ = Nothing
 
 alloca :: Type -> Codegen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []
