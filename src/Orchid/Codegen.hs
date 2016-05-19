@@ -136,6 +136,7 @@ import           Serokell.Util                      (format', formatSingle')
 
 import           Orchid.Error                       (CodegenException (CodegenException))
 import           Orchid.Types                       (Type (..))
+import qualified Orchid.Types                       as OT
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -441,7 +442,7 @@ addVariable varName varType typedVarAddr@(_,varAddr) = do
 
 reportNotInScope :: String -> Codegen a
 reportNotInScope =
-    throwCodegenError . formatSingle' "variable is not in scope: {}"
+    throwCodegenError . formatSingle' "not in scope: {}"
 
 -- | Get value of variable with given name. Functions are treated as
 -- variable too, but function's address is not dereferenced.
@@ -837,8 +838,8 @@ addGlobalVariable varType varName varExpr = do
         , _cvInitializer = value
         }
 
-startClassDef :: String -> LLVM ()
-startClassDef className = do
+startClassDef :: String -> [(String, (Type, C.Constant))]-> LLVM ()
+startClassDef className members = do
     cls <- use msClass
     maybe
         addNewCls
@@ -851,8 +852,21 @@ startClassDef className = do
         { _cdVariables = M.empty
         }
     addNewCls = do
+        addConstructor
         msClass .= Just className
         msClasses %= M.insert className newClass
+    membersMap = M.fromList members
+    addConstructor = do
+        let memberTypes = map fst $ M.elems membersMap
+        addFuncDef
+            (OT.TClass (convertString className) memberTypes)
+            className
+            []
+            constructorBody
+    constructorBody =
+        ret .
+        Just . AST.ConstantOperand . C.Struct Nothing False . map snd . M.elems $
+        membersMap
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass

@@ -6,9 +6,9 @@ class Point:
         stdWriteInt(x + y + a)
         return
 
-Point p = Point()
 
 def main():
+    Point p = Point()
     p.printSum(17)
     return
 

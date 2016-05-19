@@ -17,6 +17,7 @@ import           Control.Monad           (join, unless, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT)
 import           Data.FileEmbed          (embedStringFile)
 import qualified Data.Map                as M
+import           Data.Maybe              (catMaybes)
 import           Data.String             (IsString)
 import           Data.String.Conversions (convertString)
 import qualified LLVM.General            as G
@@ -185,9 +186,19 @@ instance C.ToLLVM OT.FuncDef where
 instance C.ToLLVM OT.ClassDef where
     -- TODO: inheritance
     toLLVM OT.ClassDef{..} = do
-        C.startClassDef $ convertString clsName
+        C.startClassDef (convertString clsName) =<< members
         C.toLLVM clsBody
         C.finishClassDef
+      where
+        members =
+            catMaybes <$>
+            (mapM payloadToMember . map OT.csPayload . OT.getClassSuite $
+             clsBody)
+        payloadToMember (Left _) = pure Nothing
+        payloadToMember (Right OT.DeclStmt{..}) =
+            Just . (convertString dsVar, ) <$>
+            ((,) <$> C.lookupType (convertString dsType) <*>
+             C.toConstant dsExpr)
 
 instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
