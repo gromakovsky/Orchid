@@ -562,14 +562,19 @@ getThisMemberPtr varName
               maybe (pure Nothing) (getMemberPtrMaybe False ptr varName) =<<
               codegenActiveClassData
 
-classAndParents :: Maybe String -> Codegen [String]
+classAndParents
+    :: (MonadState s m, HasCodegen s)
+    => Maybe String -> m [String]
 classAndParents Nothing = pure []
 classAndParents (Just className) = do
     p <- parentClass className
     (className :) <$> classAndParents p
 
-parentClass :: String -> Codegen (Maybe String)
-parentClass className = (>>= view cdParent) <$> use (csClasses . at className)
+parentClass
+    :: (MonadState s m, HasCodegen s)
+    => String -> m (Maybe String)
+parentClass className =
+    (>>= view cdParent) <$> use (classesLens . at className)
 
 isSubClass :: String -> String -> Codegen Bool
 isSubClass subC superC = elem superC <$> classAndParents (Just subC)
@@ -984,31 +989,39 @@ startClassDef className parent members = do
          throwCodegenError "class definition can't appear inside another class")
         cls
   where
-    newClass =
+    newClass parentVars =
         ClassData
-        { _cdVariables = M.empty
+        { _cdVariables = M.unions parentVars
         , _cdParent = parent
         }
     addNewCls = do
-        addConstructor
-        msClass .= Just className
-        msClasses %= M.insert className newClass
+        msClasses %= M.insert className (newClass [])
+        parents <- tail <$> classAndParents (Just className)
+        parentVars <-
+            mapM
+                (\n ->
+                      use $ msClasses . at n . _Just . cdVariables)
+                parents
+        msClasses . at className .= Just (newClass parentVars)
         mapM_ addClassVar members
-    membersMap = M.fromList members
-    addConstructor = do
-        let memberTypes = map fst $ M.elems membersMap
+        use (msClasses . at className . _Just . cdVariables) >>= addConstructor
+        msClass .= Just className
+    addConstructor variables = do
+        let memberTypes = map (view cvType) $ M.elems variables
         addFuncDef
             (OT.TClass (convertString className) memberTypes)
             className
-            []
-            constructorBody
-    constructorBody =
-        ret . Just . AST.ConstantOperand . C.Struct Nothing False . map snd .
+            [] $
+            constructorBody variables
+    constructorBody variables =
+        ret . Just . AST.ConstantOperand . C.Struct Nothing False .
+        map (view cvInitializer) .
         M.elems $
-        membersMap
+        variables
     addClassVar (varName,(varType,varInitializer)) = do
-        -- addToClass cls value = do
-        alreadyAdded <- M.member className <$> use msClasses
+        alreadyAdded <-
+            M.member varName <$>
+            use (msClasses . at className . _Just . cdVariables)
         when alreadyAdded $ throwCodegenError $
             format'
                 "variable {} is defined in class {} more than once"
