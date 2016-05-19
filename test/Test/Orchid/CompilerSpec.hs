@@ -31,6 +31,7 @@ spec =
                 checkOutput "private_var_inside.orc" private_var_insideInput "" "42\n"
                 checkOutput "class_method_inside.orc" class_method_insideInput "" "2\n1\n"
                 checkOutput "private_method_inside.orc" private_method_insideInput "" "2\n1\n"
+                checkOutput "inheritance.orc" inheritanceInput "" "10\n15\n"
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorInput
                 expectError "private_var_outside.orc" private_var_outsideInput
