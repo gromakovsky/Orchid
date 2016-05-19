@@ -91,9 +91,9 @@ data DeclStmt = DeclStmt
 
 -- | Expression statement executes expression and optionally assigns
 -- result to variable.
--- expr_stmt → [NAME '='] expr
+-- expr_stmt → [expr '='] expr
 data ExprStmt = ExprStmt
-    { esVar  :: !(Maybe Identifier)
+    { esVar  :: !(Maybe Expr)
     , esExpr :: !Expr
     } deriving (Show, Eq)
 

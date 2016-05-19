@@ -78,7 +78,7 @@ parseDeclStmt =
 
 parseExprStmt :: Parser OT.ExprStmt
 parseExprStmt =
-    OT.ExprStmt <$> (P.optionMaybe . P.try $ parseName <* assignL) <*>
+    OT.ExprStmt <$> (P.optionMaybe . P.try $ parseExpr <* assignL) <*>
     parseExpr
 
 parseFlowStmt :: Parser OT.FlowStmt

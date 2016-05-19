@@ -4,7 +4,7 @@ stmt → simple_stmt | compound_stmt
 simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
 small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt
 decl_stmt → NAME NAME '=' expr
-expr_stmt → [NAME '='] expr
+expr_stmt → [expr '='] expr
 pass_stmt → 'pass'
 flow_stmt → return_stmt
 return_stmt → 'return' [expr]

@@ -237,8 +237,8 @@ instance C.ToCodegen OT.ExprStmt () where
         v <- C.toCodegen esExpr
         maybe (return ()) (assign v) esVar
       where
-        assign val var = do
-            addr <- C.getPtr $ convertString var
+        assign val varExpr = do
+            addr <- C.toCodegenPtr varExpr
             C.store addr val
 
 instance C.ToCodegen OT.FlowStmt () where

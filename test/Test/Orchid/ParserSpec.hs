@@ -35,7 +35,7 @@ validRes2 = [T.SCompound $ T.CSIf $ T.IfStmt aExpr trueSuite (Just falseSuite)]
   where
     aExpr = T.EAtom $ T.AEAtom $ T.AIdentifier "a"
     trueSuite = T.Suite [T.SSimple $ T.SimpleStmt [T.SSExpr trueExprStmt]]
-    trueExprStmt = T.ExprStmt (Just "t") trueExpr
+    trueExprStmt = T.ExprStmt (Just $ identifierExpr "t") trueExpr
     trueExpr = T.EAtom $ T.AECall (T.AEAtom $ T.AIdentifier "print") [printArg]
     printArg = T.EAtom $ T.AEAtom $ T.AIdentifier "b"
     falseSuite = T.Suite [T.SSimple $ T.SimpleStmt [T.SSDecl falseDeclStmt]]
@@ -82,7 +82,7 @@ validInput4 = "a = p.print()\n"
 validRes4 :: [T.Stmt]
 validRes4 = [T.SSimple $ T.SimpleStmt [T.SSExpr exprStmt]]
   where
-    exprStmt = T.ExprStmt (Just "a") printExpr
+    exprStmt = T.ExprStmt (Just $ identifierExpr "a") printExpr
     printExpr = T.EAtom $ T.AECall f []
     f = T.AEAccess (T.AEAtom $ T.AIdentifier "p") "print"
 
