@@ -28,9 +28,10 @@ spec =
                 checkOutput "class.orc" classInput "" "42\n"
                 checkOutput "error.orc" errorInput "" "Error occurred\n"
                 checkOutput "rectangle.orc" rectangleInput "" "2\n1\n"
+                checkOutput "private_var_inside.orc" private_var_insideInput "" "42\n"
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorInput
-                expectError "private.orc" privateInput
+                expectError "private_var_outside.orc" private_var_outsideInput
   where
     checkOutput prName prSource prInput prOutput = do
         (`shouldBe` prOutput) =<< programOutput prName prSource prInput
