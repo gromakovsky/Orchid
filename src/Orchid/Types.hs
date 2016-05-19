@@ -29,8 +29,9 @@ module Orchid.Types
        , AccessModifier (..)
        ) where
 
-import           Data.Int  (Int64)
-import           Data.Text (Text)
+import           Data.Int            (Int64)
+import           Data.Text           (Text)
+import           Data.Text.Buildable (Buildable (build))
 
 type Identifier = Text
 type Number = Int64
@@ -45,6 +46,9 @@ data Type
     | TClass Text
              [Type]
     deriving (Show, Eq)
+
+instance Buildable Type where
+    build = build . show
 
 -- | Representation of input file passed to compiler.
 -- Input file contains list of statements.

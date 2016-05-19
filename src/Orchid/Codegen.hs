@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE Rank2Types             #-}
 {-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE ViewPatterns           #-}
 
 -- | Primitive functions to work with LLVM code generation.
 
@@ -21,13 +22,17 @@ module Orchid.Codegen
        , Codegen
        , ToCodegen
        , toCodegen
+       , ToCodegenPtr
+       , toCodegenPtr
        , createBlocks
        , execCodegen
 
          -- Symbol table
        , addVariable
        , lookupName
+       , lookupMember
        , getPtr
+       , getMemberPtr
 
          -- Block stack
        , addBlock
@@ -298,6 +303,10 @@ class ToCodegen a r | a -> r where
 instance ToCodegen (Codegen a) a where
     toCodegen = id
 
+-- | Using this class one can create a TypedOperand which is a pointer to lvalue.
+class ToCodegenPtr a where
+    toCodegenPtr :: a -> Codegen TypedOperand
+
 class HasCodegen s  where
     classesLens :: Lens' s ClassesMap
 
@@ -444,6 +453,10 @@ reportNotInScope :: String -> Codegen a
 reportNotInScope =
     throwCodegenError . formatSingle' "not in scope: {}"
 
+reportClassNotFound :: String -> Codegen a
+reportClassNotFound =
+    throwCodegenError . formatSingle' "no such class {}"
+
 -- | Get value of variable with given name. Functions are treated as
 -- variable too, but function's address is not dereferenced.
 lookupName :: String -> Codegen TypedOperand
@@ -457,29 +470,32 @@ lookupName var = do
         , AST.ConstantOperand . C.GlobalReference (orchidTypeToLLVM fdRetType) $
           AST.Name var)
 
+lookupMember :: TypedOperand -> String -> Codegen TypedOperand
+lookupMember operand memberName = getMemberPtr operand memberName >>= load
+
 -- | Get address of variable with given name. Functions are not
 -- considered by this function.
 getPtr :: String -> Codegen TypedOperand
 getPtr varName =
     maybe (reportNotInScope varName) return =<< getPtrMaybe varName
 
-getPtrMaybe :: String -> Codegen (Maybe TypedOperand)
-getPtrMaybe varName =
-    (<|>) <$>
-    use
-        (csVariables .
-         at varName . to (fmap (first TPointer . variableDataToTypedOperand))) <*>
-    getMemberPtr varName
+getMemberPtr :: TypedOperand -> String -> Codegen TypedOperand
+getMemberPtr op@(TPointer (TClass (convertString -> className) _),_) varName = do
+    classDataMaybe <- use (csClasses . at className)
+    maybe
+        (reportClassNotFound className)
+        (\cd ->
+              maybe (reportNotInScope varName) return =<<
+              getMemberPtrMaybe op varName cd)
+        classDataMaybe
+getMemberPtr (t,_) _ =
+    throwCodegenError $
+    formatSingle'
+        "can't access member of type which is not a pointer to class {}"
+        t
 
-getMemberPtr :: String -> Codegen (Maybe TypedOperand)
-getMemberPtr varName
-  | varName == thisPtrName = pure Nothing
-  | otherwise =
-      maybe (pure Nothing) (getMemberPtrDo varName) =<< codegenActiveClassData
-
-getMemberPtrDo :: String -> ClassData -> Codegen (Maybe TypedOperand)
-getMemberPtrDo varName cd = do
-    (_, thisPtr) <- getPtr thisPtrName
+getMemberPtrMaybe :: TypedOperand -> String -> ClassData -> Codegen (Maybe TypedOperand)
+getMemberPtrMaybe (TPointer (TClass _ _),ptrOperand) varName cd =
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
         Just i ->
@@ -487,10 +503,30 @@ getMemberPtrDo varName cd = do
             instr (TPointer $ M.elemAt i (cd ^. cdVariables) ^. _2 . cvType) $
             AST.GetElementPtr
                 False
-                thisPtr
+                ptrOperand
                 [ AST.ConstantOperand $ constInt32 0
                 , AST.ConstantOperand $ constInt32 $ fromIntegral i]
                 []
+getMemberPtrMaybe _ _ _ = pure Nothing
+
+getPtrMaybe :: String -> Codegen (Maybe TypedOperand)
+getPtrMaybe varName =
+    (<|>) <$>
+    use
+        (csVariables .
+         at varName . to (fmap (first TPointer . variableDataToTypedOperand))) <*>
+    getThisMemberPtr varName
+
+getThisMemberPtr :: String -> Codegen (Maybe TypedOperand)
+getThisMemberPtr varName
+  | varName == thisPtrName = pure Nothing
+  | otherwise = do
+      thisPtr <- getPtrMaybe thisPtrName
+      case thisPtr of
+          Nothing -> pure Nothing
+          Just ptr ->
+              maybe (pure Nothing) (getMemberPtrMaybe ptr varName) =<<
+              codegenActiveClassData
 
 -------------------------------------------------------------------------------
 -- Unary operations
@@ -648,14 +684,14 @@ store (ptrType,ptr) (valType,val) = do
         throwCodegenError $
         format'
             "can't store value of type {} to the pointer of type {}"
-            (show valType, show ptrType)
+            (valType, ptrType)
     () <$ instr TVoid (AST.Store False ptr val Nothing 0 [])
 
 load :: TypedOperand -> Codegen TypedOperand
 load (TPointer t, ptr) = instr t $ AST.Load False ptr Nothing 0 []
 load (t,_) =
     throwCodegenError $
-    formatSingle' "value of type {} was given to load" $ show t
+    formatSingle' "value of type {} was given to load" t
 
 -------------------------------------------------------------------------------
 -- Control Flow

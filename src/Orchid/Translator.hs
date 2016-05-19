@@ -283,18 +283,21 @@ instance C.ToCodegen OT.AtomExpr C.TypedOperand where
     toCodegen (OT.AECall (OT.AEAccess (OT.AEAtom (OT.AIdentifier varName)) fieldName) exprs) = do
         varPtr <- C.getPtr $ convertString varName
         case varPtr of
-            (OT.TPointer (OT.TClass className _), _) -> do
+            (OT.TPointer (OT.TClass className _),_) -> do
                 fPtr <-
                     C.lookupName . convertString $
                     mangleClassMethodName className fieldName
                 args <- (varPtr :) <$> mapM C.toCodegen exprs
                 C.call fPtr args
-            _ ->
-                C.throwCodegenError
-                    "attempt to call method of something strange"
+            (t,_) ->
+                C.throwCodegenError $
+                formatSingle'
+                    "attempt to call method of something strange (type is {})"
+                    t
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
-    toCodegen (OT.AEAccess _ _) = C.throwCodegenError "TODO"
+    toCodegen (OT.AEAccess expr fieldName) =
+        flip C.lookupMember (convertString fieldName) =<< C.toCodegenPtr expr
 
 instance C.ToCodegen OT.Atom C.TypedOperand where
     toCodegen (OT.AExpr e) = C.toCodegen e
@@ -349,6 +352,29 @@ instance C.ToCodegen OT.WhileStmt () where
 
 instance C.ToCodegen OT.Suite () where
     toCodegen = mapM_ C.toCodegen . OT.getSuite
+
+--------------------------------------------------------------------------------
+-- C.ToCodegenPtr
+--------------------------------------------------------------------------------
+
+instance C.ToCodegenPtr OT.Expr where
+    toCodegenPtr (OT.EAtom a) = C.toCodegenPtr a
+    toCodegenPtr _ =
+        C.throwCodegenError "can't create lvalue ptr from result of operator"
+
+instance C.ToCodegenPtr OT.AtomExpr where
+    toCodegenPtr (OT.AEAtom a) = C.toCodegenPtr a
+    toCodegenPtr (OT.AECall _ _) =
+        C.throwCodegenError
+            "can't create lvalue ptr from result of function call"
+    toCodegenPtr (OT.AEAccess expr memberName) = do
+        exprPtr <- C.toCodegenPtr expr
+        C.getMemberPtr exprPtr $ convertString memberName
+
+instance C.ToCodegenPtr OT.Atom where
+    toCodegenPtr (OT.AExpr e) = C.toCodegenPtr e
+    toCodegenPtr (OT.AIdentifier i) = C.getPtr $ convertString i
+    toCodegenPtr _ = C.throwCodegenError "can't create lvalue ptr from constant"
 
 --------------------------------------------------------------------------------
 -- C.ToConstant
