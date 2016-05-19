@@ -293,8 +293,9 @@ data CodegenState = CodegenState
     ,
       -- ^ This map is used to generated unique names for blocks.
       _csNames            :: Names
-    , _csActiveClass      :: Maybe String  -- ^ Name of class inside which
-                                       -- this function is located.
+    , _csActiveClass      :: Maybe String  -- ^ Name of class inside
+                                           -- which this function is
+                                           -- located.
     } deriving (Show)
 
 $(makeLenses ''CodegenState)
