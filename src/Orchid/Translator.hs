@@ -106,9 +106,6 @@ convertTypedArg OT.TypedArgument{..} =
     (, C.Name (convertString taName)) <$>
     C.lookupType (convertString taType)
 
-mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
-mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
-
 --------------------------------------------------------------------------------
 -- C.ToLLVM
 --------------------------------------------------------------------------------
@@ -170,7 +167,7 @@ instance C.ToLLVM OT.FuncDef where
             ptrType <- C.classPointerType className
             let thisArg = (ptrType, C.thisPtrName)
                 mangledFuncName =
-                    mangleClassMethodName
+                    C.mangleClassMethodName
                         (convertString className)
                         (convertString funcName)
             args <- (thisArg :) <$> mapM convertTypedArg funcArgs
@@ -289,7 +286,7 @@ instance C.ToCodegen OT.AtomExpr C.TypedOperand where
             (OT.TPointer (OT.TClass className _),_) -> do
                 fPtr <-
                     C.lookupName . convertString $
-                    mangleClassMethodName className fieldName
+                    C.mangleClassMethodName className fieldName
                 args <- (varPtr :) <$> mapM C.toCodegen exprs
                 C.call fPtr args
             (t,_) ->

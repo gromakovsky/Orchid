@@ -13,6 +13,7 @@ module Orchid.Codegen
          -- Helpers
          throwCodegenError
        , thisPtrName
+       , mangleClassMethodName
 
          -- Useful types
        , FunctionData (..)
@@ -104,7 +105,7 @@ module Orchid.Codegen
        , AST.Name (..)
        ) where
 
-import           Control.Applicative                ((<|>))
+import           Control.Applicative                (empty, (<|>))
 import           Control.Lens                       (Lens', at, makeLenses,
                                                      makeLensesFor, set, to,
                                                      use, view, (%=), (+=),
@@ -138,7 +139,8 @@ import qualified LLVM.General.AST.Type              as T (Type (..), i1, i64,
 import           Prelude                            hiding (and, div, mod, not,
                                                      or)
 import qualified Prelude
-import           Serokell.Util                      (format', formatSingle')
+import           Serokell.Util                      (format', formatSingle',
+                                                     listBuilderJSON)
 
 import           Orchid.Error                       (CodegenException (CodegenException))
 import           Orchid.Types                       (Type (..))
@@ -186,6 +188,9 @@ orchidTypeToLLVM (TFunction retType argTypes) =
         False
 orchidTypeToLLVM (TClass _ types) =
     T.StructureType False $ map orchidTypeToLLVM types
+
+mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
+mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
 
 -------------------------------------------------------------------------------
 -- Codegen State
@@ -464,14 +469,18 @@ reportClassNotFound =
 -- variable too, but function's address is not dereferenced.
 lookupName :: String -> Codegen TypedOperand
 lookupName var = do
-    f <- fmap constructF <$> use (csFunctions . at var)
+    f <- constructF var
+    method <- maybe (return Nothing) constructMethod =<< use csActiveClass
     v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
-    maybe (reportNotInScope var) return $ v <|> f
+    maybe (reportNotInScope var) return $ foldr (<|>) empty [f, method, v]
   where
-    constructF fd@FunctionData {..} =
+    constructF name = fmap (constructFDo name) <$> use (csFunctions . at name)
+    constructFDo name fd@FunctionData{..} =
         ( functionDataToType fd
         , AST.ConstantOperand . C.GlobalReference (orchidTypeToLLVM fdRetType) $
-          AST.Name var)
+          AST.Name name)
+    constructMethod className =
+        constructF $ mangleClassMethodName className var
 
 lookupMember :: TypedOperand -> String -> Codegen TypedOperand
 lookupMember operand memberName = getMemberPtr operand memberName >>= load
@@ -556,11 +565,21 @@ checkTypes :: String -> [Type] -> [TypedOperand] -> Codegen ()
 checkTypes funcName expectedTypes args
   | length expectedTypes /= length args =
       throwCodegenError $
-      formatSingle' "{}: incorrect number of arguments" funcName
-  | Prelude.and $ zipWith (\t (t',_) -> t == t') expectedTypes args =
+      format' "{}: incorrect number of arguments{}" (funcName, endMsg)
+  | Prelude.and $
+        zipWith
+            (\t (t',_) ->
+                  t == t')
+            expectedTypes
+            args =
       return ()
   | otherwise =
-      throwCodegenError $ formatSingle' "{}: incorrect argument type" funcName
+      throwCodegenError $
+      format' "{}: incorrect argument type{}" (funcName, endMsg)
+  where
+    endMsg =
+        format' ", expected types: {}, received types: {}"
+            (listBuilderJSON expectedTypes, listBuilderJSON $ map fst args)
 
 or :: TypedOperand -> TypedOperand -> Codegen TypedOperand
 or op1@(_,a) op2@(_,b) =
@@ -681,9 +700,20 @@ call (fnType,fnOperand) args =
     typeToFunctionData fnType
   where
     callDo FunctionData{..} = do
-        checkTypes "call" fdArgTypes args
+        activeClassName <- use csActiveClass
+        args' <- maybePrependThis activeClassName fdArgTypes
+        checkTypes "call" fdArgTypes args'
         instr fdRetType $
-            AST.Call Nothing CC.C [] (Right fnOperand) (toArgs args) [] []
+            AST.Call Nothing CC.C [] (Right fnOperand) (toArgs args') [] []
+    maybePrependThis Nothing _ = pure args
+    maybePrependThis (Just className) argTypes
+      | length argTypes /= length args + 1 = pure args
+      | isPtrToClass className (head argTypes) =
+          (: args) <$> getPtr thisPtrName
+      | otherwise = pure args
+    isPtrToClass className (TPointer (TClass n _)) =
+        convertString className == n
+    isPtrToClass _ _ = False
 
 alloca :: Type -> Codegen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []
