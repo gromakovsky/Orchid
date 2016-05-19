@@ -489,7 +489,7 @@ getMemberPtr op@(TPointer (TClass (convertString -> className) _),_) varName = d
         (reportClassNotFound className)
         (\cd ->
               maybe (reportNotInScope varName) return =<<
-              getMemberPtrMaybe op varName cd)
+              getMemberPtrMaybe True op varName cd)
         classDataMaybe
 getMemberPtr (t,_) _ =
     throwCodegenError $
@@ -497,13 +497,17 @@ getMemberPtr (t,_) _ =
         "can't access member of type which is not a pointer to class {}"
         t
 
-getMemberPtrMaybe :: TypedOperand -> String -> ClassData -> Codegen (Maybe TypedOperand)
-getMemberPtrMaybe (TPointer (TClass _ _),ptrOperand) varName cd =
+getMemberPtrMaybe :: Bool
+                  -> TypedOperand
+                  -> String
+                  -> ClassData
+                  -> Codegen (Maybe TypedOperand)
+getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd =
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
         Just i -> do
             let classVariable = M.elemAt i (cd ^. cdVariables) ^. _2
-            when (classVariable ^. cvPrivate) $
+            when (considerPrivate && classVariable ^. cvPrivate) $
                 throwCodegenError $
                 formatSingle' "variable {} is private" varName
             fmap Just . instr (TPointer $ classVariable ^. cvType) $
@@ -513,7 +517,7 @@ getMemberPtrMaybe (TPointer (TClass _ _),ptrOperand) varName cd =
                     [ AST.ConstantOperand $ constInt32 0
                     , AST.ConstantOperand $ constInt32 $ fromIntegral i]
                     []
-getMemberPtrMaybe _ _ _ = pure Nothing
+getMemberPtrMaybe _ _ _ _ = pure Nothing
 
 getPtrMaybe :: String -> Codegen (Maybe TypedOperand)
 getPtrMaybe varName =
@@ -531,7 +535,7 @@ getThisMemberPtr varName
       case thisPtr of
           Nothing -> pure Nothing
           Just ptr ->
-              maybe (pure Nothing) (getMemberPtrMaybe ptr varName) =<<
+              maybe (pure Nothing) (getMemberPtrMaybe False ptr varName) =<<
               codegenActiveClassData
 
 -------------------------------------------------------------------------------
