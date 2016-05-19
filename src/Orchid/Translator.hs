@@ -181,9 +181,9 @@ instance C.ToLLVM OT.FuncDef where
             C.toCodegen funcBody
 
 instance C.ToLLVM OT.ClassDef where
-    -- TODO: inheritance
     toLLVM OT.ClassDef{..} = do
-        C.startClassDef (convertString clsName) =<< members
+        C.startClassDef (convertString clsName) (convertString <$> clsParent) =<<
+            members
         C.toLLVM clsBody
         C.finishClassDef
       where

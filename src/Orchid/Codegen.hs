@@ -260,6 +260,7 @@ $(makeLenses ''ClassVariable)
 -- | ClassData stores all data associated with class.
 data ClassData = ClassData
     { _cdVariables :: M.Map String ClassVariable
+    , _cdParent    :: Maybe String
     } deriving (Show)
 
 $(makeLenses ''ClassData)
@@ -952,8 +953,11 @@ makeFuncPrivate funcName =
     impl clsName =
         msPrivateFunctions %= S.insert (mangleClassMethodName clsName funcName)
 
-startClassDef :: String -> [(String, (Type, C.Constant))]-> LLVM ()
-startClassDef className members = do
+startClassDef :: String
+              -> Maybe String
+              -> [(String, (Type, C.Constant))]
+              -> LLVM ()
+startClassDef className parent members = do
     cls <- use msClass
     maybe
         addNewCls
@@ -964,6 +968,7 @@ startClassDef className members = do
     newClass =
         ClassData
         { _cdVariables = M.empty
+        , _cdParent = parent
         }
     addNewCls = do
         addConstructor
