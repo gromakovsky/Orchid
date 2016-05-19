@@ -13,7 +13,7 @@ module Orchid.Translator
        ) where
 
 import           Control.Exception       (throwIO)
-import           Control.Monad           (join, unless, (<=<))
+import           Control.Monad           (join, unless, when, (<=<))
 import           Control.Monad.Except    (ExceptT, runExceptT)
 import           Data.FileEmbed          (embedStringFile)
 import qualified Data.Map                as M
@@ -205,7 +205,10 @@ instance C.ToLLVM OT.ClassSuite where
 
 instance C.ToLLVM OT.ClassStmt where
     toLLVM OT.ClassStmt{csAccess = _,csPayload = Left f} = C.toLLVM f
-    toLLVM OT.ClassStmt{csAccess = _,csPayload = Right v} = C.toLLVM v
+    toLLVM OT.ClassStmt{csAccess = access,csPayload = Right v} = do
+        C.toLLVM v
+        when (access == OT.AMPrivate) $
+            C.makePrivate $ convertString $ OT.dsVar v
 
 --------------------------------------------------------------------------------
 -- C.ToCodegen

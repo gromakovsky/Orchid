@@ -91,6 +91,7 @@ module Orchid.Codegen
        , getActiveClass
        , addFuncDef
        , addGlobalVariable
+       , makePrivate
        , startClassDef
        , finishClassDef
 
@@ -105,10 +106,10 @@ module Orchid.Codegen
 
 import           Control.Applicative                ((<|>))
 import           Control.Lens                       (Lens', at, makeLenses,
-                                                     makeLensesFor, to, use,
-                                                     view, (%=), (+=), (.=),
-                                                     (.~), (<>=), (<>~), (^.),
-                                                     _2, _Just)
+                                                     makeLensesFor, set, to,
+                                                     use, view, (%=), (+=),
+                                                     (.=), (.~), (<>=), (<>~),
+                                                     (^.), _2, _Just)
 import           Control.Monad                      (unless, when, (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (throwError),
@@ -239,10 +240,12 @@ type FunctionsMap = M.Map String FunctionData
 type TypedOperand = (Type, AST.Operand)
 
 -- | ClassVariable type represents variable defined inside class
--- body. It has a type and initial value (used for construction).
+-- body. It has a type, initial value (used for construction) and
+-- access modifier.
 data ClassVariable = ClassVariable
     { _cvType        :: Type
     , _cvInitializer :: C.Constant
+    , _cvPrivate     :: Bool
     } deriving (Show)
 
 $(makeLenses ''ClassVariable)
@@ -498,15 +501,18 @@ getMemberPtrMaybe :: TypedOperand -> String -> ClassData -> Codegen (Maybe Typed
 getMemberPtrMaybe (TPointer (TClass _ _),ptrOperand) varName cd =
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
-        Just i ->
-            fmap Just .
-            instr (TPointer $ M.elemAt i (cd ^. cdVariables) ^. _2 . cvType) $
-            AST.GetElementPtr
-                False
-                ptrOperand
-                [ AST.ConstantOperand $ constInt32 0
-                , AST.ConstantOperand $ constInt32 $ fromIntegral i]
-                []
+        Just i -> do
+            let classVariable = M.elemAt i (cd ^. cdVariables) ^. _2
+            when (classVariable ^. cvPrivate) $
+                throwCodegenError $
+                formatSingle' "variable {} is private" varName
+            fmap Just . instr (TPointer $ classVariable ^. cvType) $
+                AST.GetElementPtr
+                    False
+                    ptrOperand
+                    [ AST.ConstantOperand $ constInt32 0
+                    , AST.ConstantOperand $ constInt32 $ fromIntegral i]
+                    []
 getMemberPtrMaybe _ _ _ = pure Nothing
 
 getPtrMaybe :: String -> Codegen (Maybe TypedOperand)
@@ -872,7 +878,19 @@ addGlobalVariable varType varName varExpr = do
         ClassVariable
         { _cvType = varType
         , _cvInitializer = value
+        , _cvPrivate = False
         }
+
+-- | Make variable in active class private.
+makePrivate :: String -> LLVM ()
+makePrivate varName =
+    maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
+  where
+    outsideClassMsg =
+        "internal error: attempt to make variable private outside class"
+    impl clsName =
+        msClasses . at clsName . _Just . cdVariables . at varName %=
+        fmap (set cvPrivate True)
 
 startClassDef :: String -> [(String, (Type, C.Constant))]-> LLVM ()
 startClassDef className members = do
