@@ -8,6 +8,7 @@ module Test.Orchid.Data
        , errorInput
        , type_errorInput
        , rectangleInput
+       , privateInput
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -39,3 +40,8 @@ rectangleInput
     :: IsString s
     => s
 rectangleInput = $(embedStringFile $ testPath "rectangle.orc")
+
+privateInput
+    :: IsString s
+    => s
+privateInput = $(embedStringFile $ testPath "private.orc")

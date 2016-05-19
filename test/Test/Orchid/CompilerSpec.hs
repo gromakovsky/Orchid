@@ -24,23 +24,26 @@ spec =
     describe "Compiler" $ do
         describe "compileStr" $ do
             it "Compiles code in Orchid language" $ do
-                checkOutput factorial_ioInput "6\n" "720\n"
-                checkOutput classInput "" "42\n"
-                checkOutput errorInput "" "Error occurred\n"
-                checkOutput rectangleInput "" "2\n1\n"
+                checkOutput "factorial_io.orc" factorial_ioInput "6\n" "720\n"
+                checkOutput "class.orc" classInput "" "42\n"
+                checkOutput "error.orc" errorInput "" "Error occurred\n"
+                checkOutput "rectangle.orc" rectangleInput "" "2\n1\n"
             it "Reports error for invalid code" $ do
-                expectError type_errorInput
+                expectError "type_error.orc" type_errorInput
+                expectError "private.orc" privateInput
   where
-    checkOutput prSource prInput prOutput =
-        shouldBe prOutput =<< programOutput prSource prInput
-    expectError prSource =
-        programOutput prSource undefined `shouldThrow`
-        (\(_ :: CodegenException) -> True)
+    checkOutput prName prSource prInput prOutput = do
+        (`shouldBe` prOutput) =<< programOutput prName prSource prInput
+    expectError prName prSource = do
+        programOutput prName prSource undefined `shouldThrow`
+            (\(_ :: CodegenException) -> True)
 
-programOutput :: Text -> Text -> IO Text
-programOutput programSource programInput = withSystemTempDirectory "patak" cb
+programOutput :: String -> Text -> Text -> IO Text
+programOutput programName programSource programInput =
+    withSystemTempDirectory "patak" cb
   where
     cb dir = do
+        putStrLn programName
         compileStr programSource $ dir </> "a.ll"
         () <$
             procStrict
