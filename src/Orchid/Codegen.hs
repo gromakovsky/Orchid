@@ -606,7 +606,7 @@ instance ToConstant Bool where
 complexConstant
     :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
     => String -> [(Type, C.Constant)] -> m C.Constant
-complexConstant constructorName _ = do
+complexConstant constructorName [] = do
     cls <- use $ classesLens . at constructorName
     maybe onFailure onSuccess cls
   where
@@ -617,6 +617,7 @@ complexConstant constructorName _ = do
         return .
         C.Struct Nothing False .
         map (view cvInitializer) . M.elems . view cdVariables
+complexConstant _ _ = throwCodegenError "constructors with arguments are not supported"
 
 -------------------------------------------------------------------------------
 -- Effects
