@@ -11,6 +11,8 @@ module Test.Orchid.Data
        , private_var_insideInput
        , private_var_outsideInput
        , class_method_insideInput
+       , private_method_insideInput
+       , private_method_outsideInput
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -57,3 +59,13 @@ class_method_insideInput
     :: IsString s
     => s
 class_method_insideInput = $(embedStringFile $ testPath "class_method_inside.orc")
+
+private_method_insideInput
+    :: IsString s
+    => s
+private_method_insideInput = $(embedStringFile $ testPath "private_method_inside.orc")
+
+private_method_outsideInput
+    :: IsString s
+    => s
+private_method_outsideInput = $(embedStringFile $ testPath "private_method_outside.orc")

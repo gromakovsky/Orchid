@@ -30,9 +30,11 @@ spec =
                 checkOutput "rectangle.orc" rectangleInput "" "2\n1\n"
                 checkOutput "private_var_inside.orc" private_var_insideInput "" "42\n"
                 checkOutput "class_method_inside.orc" class_method_insideInput "" "2\n1\n"
+                checkOutput "private_method_inside.orc" private_method_insideInput "" "2\n1\n"
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorInput
                 expectError "private_var_outside.orc" private_var_outsideInput
+                expectError "private_method_outside.orc" private_method_outsideInput
   where
     checkOutput prName prSource prInput prOutput = do
         (`shouldBe` prOutput) =<< programOutput prName prSource prInput
