@@ -14,6 +14,7 @@ module Test.Orchid.Data
        , private_method_insideInput
        , private_method_outsideInput
        , inheritanceInput
+       , shapeInput
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -75,3 +76,8 @@ inheritanceInput
     :: IsString s
     => s
 inheritanceInput = $(embedStringFile $ testPath "inheritance.orc")
+
+shapeInput
+    :: IsString s
+    => s
+shapeInput = $(embedStringFile $ testPath "shape.orc")
