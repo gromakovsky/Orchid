@@ -176,9 +176,9 @@ instance C.ToLLVM OT.FuncDef where
             args <- (thisArg :) <$> mapM convertTypedArg funcArgs
             C.addFuncDef ret mangledFuncName args $ bodyCodegenClass args
         bodyCodegenClass args = do
-            let (thisType,thisName) = head args
-            C.addVariable (fromName thisName) thisType $
-                ( OT.TPointer thisType
+            let (thisType@(OT.TPointer classType),thisName) = head args
+            C.addVariable (fromName thisName) classType $
+                ( thisType
                 , AST.LocalReference (C.orchidTypeToLLVM thisType) thisName)
             mapM_ codegenArgument $ tail args
             C.toCodegen funcBody
