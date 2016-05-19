@@ -27,6 +27,7 @@ spec =
                 checkOutput factorial_ioInput "6\n" "720\n"
                 checkOutput classInput "" "42\n"
                 checkOutput errorInput "" "Error occurred\n"
+                checkOutput rectangleInput "" "2\n1\n"
             it "Reports error for invalid code" $ do
                 expectError type_errorInput
   where
