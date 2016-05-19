@@ -201,11 +201,14 @@ instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
 
 instance C.ToLLVM OT.ClassStmt where
-    toLLVM OT.ClassStmt{csAccess = _,csPayload = Left f} = C.toLLVM f
+    toLLVM OT.ClassStmt{csAccess = access,csPayload = Left f} = do
+        C.toLLVM f
+        when (access == OT.AMPrivate) $
+            C.makeFuncPrivate $ convertString $ OT.funcName f
     toLLVM OT.ClassStmt{csAccess = access,csPayload = Right v} = do
         C.toLLVM v
         when (access == OT.AMPrivate) $
-            C.makePrivate $ convertString $ OT.dsVar v
+            C.makeVarPrivate $ convertString $ OT.dsVar v
 
 --------------------------------------------------------------------------------
 -- C.ToCodegen
@@ -284,9 +287,9 @@ instance C.ToCodegen OT.AtomExpr C.TypedOperand where
         varPtr <- C.getPtr $ convertString varName
         case varPtr of
             (OT.TPointer (OT.TClass className _),_) -> do
+                let mangledName = C.mangleClassMethodName className fieldName
                 fPtr <-
-                    C.lookupName . convertString $
-                    C.mangleClassMethodName className fieldName
+                    C.lookupName $ convertString mangledName
                 args <- (varPtr :) <$> mapM C.toCodegen exprs
                 C.call fPtr args
             (t,_) ->

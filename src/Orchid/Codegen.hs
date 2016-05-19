@@ -92,7 +92,8 @@ module Orchid.Codegen
        , getActiveClass
        , addFuncDef
        , addGlobalVariable
-       , makePrivate
+       , makeVarPrivate
+       , makeFuncPrivate
        , startClassDef
        , finishClassDef
 
@@ -123,6 +124,7 @@ import           Data.Int                           (Int32, Int64)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
 import           Data.Maybe                         (isJust)
+import qualified Data.Set                           as S
 import           Data.String                        (IsString (fromString))
 import           Data.String.Conversions            (convertString)
 import           Data.Text                          (Text)
@@ -269,26 +271,29 @@ type ClassesMap = M.Map String ClassData
 data CodegenState = CodegenState
     {
       -- ^ Name of the active block to append to.
-      _csCurrentBlock :: AST.Name
+      _csCurrentBlock     :: AST.Name
     ,
       -- ^ Blocks within a function body.
-      _csBlocks       :: BlocksMap
+      _csBlocks           :: BlocksMap
     ,
       -- ^ Global functions.
-      _csFunctions    :: FunctionsMap
+      _csFunctions        :: FunctionsMap
+    ,
+      -- ^ Private functions.
+      _csPrivateFunctions :: S.Set String
     ,
       -- ^ Global classes.
-      _csClasses      :: ClassesMap
+      _csClasses          :: ClassesMap
     ,
       -- ^ Map from global/local variable name to it's address.
-      _csVariables    :: VariablesMap
+      _csVariables        :: VariablesMap
     ,
       -- ^ Count of unnamed identifiers.
-      _csCount        :: Word
+      _csCount            :: Word
     ,
       -- ^ This map is used to generated unique names for blocks.
-      _csNames        :: Names
-    , _csActiveClass  :: Maybe String  -- ^ Name of class inside which
+      _csNames            :: Names
+    , _csActiveClass      :: Maybe String  -- ^ Name of class inside which
                                        -- this function is located.
     } deriving (Show)
 
@@ -345,13 +350,14 @@ entryBlockName = "entry"
 emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-mkCodegen :: FunctionsMap -> ClassesMap -> VariablesMap -> Maybe String -> CodegenState
-mkCodegen functions classes symbols activeClass =
+mkCodegen :: FunctionsMap -> S.Set String -> ClassesMap -> VariablesMap -> Maybe String -> CodegenState
+mkCodegen functions privateFunctions classes symbols activeClass =
     execState (runExceptT . getCodegen $ addBlock entryBlockName) $
     CodegenState
     { _csCurrentBlock = entryBlockName
     , _csBlocks = M.empty
     , _csFunctions = functions
+    , _csPrivateFunctions = privateFunctions
     , _csClasses = classes
     , _csVariables = symbols
     , _csCount = 0
@@ -360,15 +366,16 @@ mkCodegen functions classes symbols activeClass =
     }
 
 execCodegen :: FunctionsMap
+            -> S.Set String
             -> ClassesMap
             -> VariablesMap
             -> Maybe String
             -> Codegen a
             -> Either CodegenException CodegenState
-execCodegen functions classes symbols activeClass =
+execCodegen functions privateFunctions classes symbols activeClass =
     f . flip runState initial . runExceptT . getCodegen
   where
-    initial = mkCodegen functions classes symbols activeClass
+    initial = mkCodegen functions privateFunctions classes symbols activeClass
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -469,18 +476,22 @@ reportClassNotFound =
 -- variable too, but function's address is not dereferenced.
 lookupName :: String -> Codegen TypedOperand
 lookupName var = do
-    f <- constructF var
+    f <- constructF True var
     method <- maybe (return Nothing) constructMethod =<< use csActiveClass
     v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
     maybe (reportNotInScope var) return $ foldr (<|>) empty [f, method, v]
   where
-    constructF name = fmap (constructFDo name) <$> use (csFunctions . at name)
+    constructF considerPrivate name = do
+        isPrivate <- S.member name <$> use csPrivateFunctions
+        if isPrivate && considerPrivate
+            then return Nothing
+            else fmap (constructFDo name) <$> use (csFunctions . at name)
     constructFDo name fd@FunctionData{..} =
         ( functionDataToType fd
         , AST.ConstantOperand . C.GlobalReference (orchidTypeToLLVM fdRetType) $
           AST.Name name)
     constructMethod className =
-        constructF $ mangleClassMethodName className var
+        constructF False $ mangleClassMethodName className var
 
 lookupMember :: TypedOperand -> String -> Codegen TypedOperand
 lookupMember operand memberName = getMemberPtr operand memberName >>= load
@@ -791,11 +802,12 @@ $(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
 
 -- | ModuleState is a state of the whole module.
 data ModuleState = ModuleState
-    { _msFunctions :: FunctionsMap
-    , _msClasses   :: ClassesMap
-    , _msVariables :: VariablesMap
-    , _msClass     :: Maybe String
-    , _msModule    :: AST.Module
+    { _msFunctions        :: FunctionsMap
+    , _msPrivateFunctions :: S.Set String
+    , _msClasses          :: ClassesMap
+    , _msVariables        :: VariablesMap
+    , _msClass            :: Maybe String
+    , _msModule           :: AST.Module
     } deriving (Show)
 
 $(makeLenses ''ModuleState)
@@ -830,6 +842,7 @@ mkModuleState
 mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVariables =
     ModuleState
     { _msFunctions = preludeFunctions
+    , _msPrivateFunctions = S.empty
     , _msClasses = preludeClasses
     , _msVariables = preludeVariables
     , _msClass = Nothing
@@ -852,10 +865,11 @@ addFuncDef
     => Type -> String -> [(Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
     funcs <- use msFunctions
+    privFuncs <- use msPrivateFunctions
     classes <- use msClasses
     vars <- use msVariables
     activeClass <- use msClass
-    case bodyEither funcs classes vars activeClass of
+    case bodyEither funcs privFuncs classes vars activeClass of
         Left e -> throwError e
         Right body -> do
             addDefn $ AST.GlobalDefinition $
@@ -873,10 +887,11 @@ addFuncDef retType funcName args suite = do
         { fdRetType = retType
         , fdArgTypes = map fst args
         }
-    bodyEither funcs classes vars activeClass =
-        execCodegen funcs classes vars activeClass (toCodegen suite) >>=
+    bodyEither funcs privFuncs classes vars activeClass =
+        execCodegen funcs privFuncs classes vars activeClass (toCodegen suite) >>=
         createBlocks
-    parameters = ([G.Parameter (orchidTypeToLLVM t) n [] | (t,n) <- args], False)
+    parameters =
+        ([G.Parameter (orchidTypeToLLVM t) n [] | (t,n) <- args], False)
 
 -- | Outside class this function adds global variable with given type
 -- and name to module. Inside class definition it adds given variable
@@ -916,8 +931,8 @@ addGlobalVariable varType varName varExpr = do
         }
 
 -- | Make variable in active class private.
-makePrivate :: String -> LLVM ()
-makePrivate varName =
+makeVarPrivate :: String -> LLVM ()
+makeVarPrivate varName =
     maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
   where
     outsideClassMsg =
@@ -925,6 +940,16 @@ makePrivate varName =
     impl clsName =
         msClasses . at clsName . _Just . cdVariables . at varName %=
         fmap (set cvPrivate True)
+
+-- | Make function in active class private.
+makeFuncPrivate :: String -> LLVM ()
+makeFuncPrivate funcName =
+    maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
+  where
+    outsideClassMsg =
+        "internal error: attempt to make function private outside class"
+    impl clsName =
+        msPrivateFunctions %= S.insert (mangleClassMethodName clsName funcName)
 
 startClassDef :: String -> [(String, (Type, C.Constant))]-> LLVM ()
 startClassDef className members = do
