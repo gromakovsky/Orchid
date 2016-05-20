@@ -63,8 +63,8 @@ class Rectangle(Shape):
         return
 
 
-def printSquare(shape : Shape):
-    stdWriteInt(shape.square())
+def printSquare(shape : Shape *):
+    stdWriteInt((*shape).square())
     return
 
 
@@ -76,8 +76,8 @@ def main():
     c.setRadius(2)
     Rectangle rect = Rectangle()
     rect.setP1(p1)
-    printSquare(p1)
-    printSquare(c)
-    printSquare(rect)
+    printSquare(&p1)
+    printSquare(&c)
+    printSquare(&rect)
     return
 
