@@ -69,13 +69,6 @@ def f(a : int64, b: int64) → int64:
     return a + b
 ```
 
-### Class definition
-
-Class definition starts with `class` keyword followed by class name,
-optional parent class in parenthesis and `:` symbol. The next lines
-contain indented block with class's body containing sequence of class
-statements. **TODO**
-
 ### Variable definition
 
 Variable definition may occur as a top-level statement (in this case
@@ -86,6 +79,37 @@ Example:
 
 ```
 int64 a = 42
+```
+
+### Class definition
+
+Class definition starts with `class` keyword followed by class name,
+optional parent class in parenthesis and `:` symbol. The next lines
+contain indented block with class's body containing sequence of class
+statements.
+
+Class statement is either a function (method) definition or variable
+(member) definition. Each class statement starts with access modifier
+(either `public` or `private`). Function definition inside class body
+is the same as for top-level function, except that it may be prefixed with
+`virtual` keyword to denote virtual function. Variable definition
+inside class body has exactly the same syntax as outside class
+body. Initializer is used when object of the class is constructed.
+
+Example:
+
+```
+class A:
+    private int64 x = 0
+    public f() → bool:
+        return True
+
+    virtual public g() → int64:
+        return x
+
+class B(A):
+    virtual public g() → int64:
+        return 8
 ```
 
 ### `pass`
