@@ -201,13 +201,36 @@ library contains the following functions:
 - `stdExit(int64)`
 
   This function aborts execution of the program with given exit code
-  and prints a message to stderr.
+  and prints a message to stdout.
 
 - `stdReadInt() → int64`
+
+  This function reads 64-bit integer from stdin and expects `\n` in
+  the end. It aborts execution with exit code `1` in case of any
+  error.
+
 - `stdReadBool() → bool`
+
+  This function reads boolean value from stdin. It behaves just like
+  `stdReadInt` and interprets `0` as `False` and all other numbers as
+  `True`.
+
 - `stdWriteInt(int64)`
+
+  This function prints 64-bit integer followed by `\n` to stdout.  It
+  aborts execution with exit code `2` in case of any error.
+
 - `stdWriteBool(bool)`
-- `stdPower(int64, in64)`
+
+  This function prints boolean value followed by `\n` to stdout. It
+  behaves just like `stdWriteInt` and prints `True` as `1` and `False`
+  as `0`.
+
+- `stdPower(int64, int64)`
+
+  `stdPower(a, b)` is the same as `a ** b`. It uses exponentation by
+  squaring algorithm. It aborts execution with exit code `3` if both
+  arguments are 0.
 
 ## Examples
 
