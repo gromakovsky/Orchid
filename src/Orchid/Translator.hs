@@ -103,8 +103,12 @@ handleFatalError =
 
 convertTypedArg :: OT.TypedArgument -> C.LLVM (OT.Type, C.Name)
 convertTypedArg OT.TypedArgument{..} =
-    (, C.Name (convertString taName)) <$>
+    (, C.Name (convertString taName)) . pointerIfNeeded <$>
     C.lookupType (convertString taType)
+  where
+    pointerIfNeeded
+      | taPointer = OT.TPointer
+      | otherwise = id
 
 --------------------------------------------------------------------------------
 -- C.ToLLVM
@@ -251,11 +255,14 @@ instance C.ToCodegen OT.ReturnStmt () where
         () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toCodegen) me
 
 instance C.ToCodegen OT.Expr C.TypedOperand where
+    toCodegen (OT.EUnary OT.UnaryAddr a) = C.toCodegenPtr a
     toCodegen (OT.EUnary uOp a) = C.toCodegen a >>= convertUnOp uOp
       where
         convertUnOp OT.UnaryPlus = pure
         convertUnOp OT.UnaryMinus = C.neg
         convertUnOp OT.UnaryNot = C.not
+        convertUnOp OT.UnaryDeref = C.load
+        convertUnOp OT.UnaryAddr = undefined
     toCodegen (OT.EBinary bOp a b) = do
         op1 <- C.toCodegen a
         op2 <- C.toCodegen b
@@ -361,6 +368,7 @@ instance C.ToCodegen OT.Suite () where
 
 instance C.ToCodegenPtr OT.Expr where
     toCodegenPtr (OT.EAtom a) = C.toCodegenPtr a
+    toCodegenPtr (OT.EUnary OT.UnaryDeref a) = C.toCodegen a
     toCodegenPtr _ =
         C.throwCodegenError "can't create lvalue ptr from result of operator"
 
