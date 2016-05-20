@@ -113,8 +113,7 @@ import           Control.Lens                       (Lens', at, makeLenses,
                                                      (.=), (.~), (<>=), (<>~),
                                                      (^.), _2, _Just)
 import           Control.Monad                      (unless, when, (>=>))
-import           Control.Monad.Except               (ExceptT,
-                                                     MonadError (throwError),
+import           Control.Monad.Except               (ExceptT, MonadError (throwError, catchError),
                                                      runExceptT)
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
@@ -731,8 +730,18 @@ cast (t1@(TPointer (TClass origClass _)),origOperand) newType@(TPointer (TClass 
         throwCodegenError $
         format' "cast from {} to {} is prohibited" (t1, newType)
     instr newType $ AST.BitCast origOperand (orchidTypeToLLVM newType) []
-cast (t1,_) t2 =
-    throwCodegenError $ format' "cast from {} to {} is prohibited" (t1, t2)
+cast (t1,origOperand) t2
+  | t1 == t2 = pure (t1, origOperand)
+  | otherwise =
+      throwCodegenError $ format' "cast from {} to {} is prohibited" (t1, t2)
+
+castArgs :: [TypedOperand] -> [Type] -> Codegen [TypedOperand]
+castArgs args expectedTypes
+  | length args /= length expectedTypes = pure args
+  | otherwise = mapM castArgsDo $ zip args expectedTypes
+
+castArgsDo :: (TypedOperand, Type) -> Codegen TypedOperand
+castArgsDo (operand, t) = cast operand t `catchError` const (pure operand)
 
 call :: TypedOperand -> [TypedOperand] -> Codegen TypedOperand
 call (fnType,fnOperand) args =
@@ -743,7 +752,9 @@ call (fnType,fnOperand) args =
   where
     callDo FunctionData{..} = do
         activeClassName <- use csActiveClass
-        args' <- maybePrependThis activeClassName fdArgTypes
+        args' <-
+            maybePrependThis activeClassName fdArgTypes >>=
+            flip castArgs fdArgTypes
         checkTypes "call" fdArgTypes args'
         instr fdRetType $
             AST.Call Nothing CC.C [] (Right fnOperand) (toArgs args') [] []
