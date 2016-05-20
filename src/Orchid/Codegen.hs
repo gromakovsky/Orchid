@@ -723,13 +723,16 @@ complexConstant _ _ = throwCodegenError "constructors with arguments are not sup
 toArgs :: [TypedOperand] -> [(AST.Operand, [A.ParameterAttribute])]
 toArgs = map (\(_, x) -> (x, []))
 
+lowLevelCast :: AST.Operand -> Type -> Codegen TypedOperand
+lowLevelCast op newType = instr newType $ AST.BitCast op (orchidTypeToLLVM newType) []
+
 cast :: TypedOperand -> Type -> Codegen TypedOperand
 cast (t1@(TPointer (TClass origClass _)),origOperand) newType@(TPointer (TClass newClass _)) = do
     isSC <- isSubClass (convertString origClass) (convertString newClass)
     unless isSC $
         throwCodegenError $
         format' "cast from {} to {} is prohibited" (t1, newType)
-    instr newType $ AST.BitCast origOperand (orchidTypeToLLVM newType) []
+    lowLevelCast origOperand newType
 cast (t1,origOperand) t2
   | t1 == t2 = pure (t1, origOperand)
   | otherwise =
@@ -991,8 +994,9 @@ makeFuncPrivate funcName =
 startClassDef :: String
               -> Maybe String
               -> [(String, (Type, C.Constant))]
+              -> [(String, Type)]
               -> LLVM ()
-startClassDef className parent members = do
+startClassDef className parent members virtualMethods = do
     cls <- use msClass
     maybe
         addNewCls
@@ -1005,6 +1009,12 @@ startClassDef className parent members = do
         { _cdVariables = M.unions parentVars
         , _cdParent = parent
         }
+    convertVirtualMethod (methodName,methodType) =
+        let t = TPointer methodType
+            mangledName = mangleClassMethodName className methodName
+        in ( methodName
+           , (t, C.GlobalReference (orchidTypeToLLVM t) (AST.Name mangledName)))
+    members' = map convertVirtualMethod virtualMethods ++ members
     addNewCls = do
         msClasses %= M.insert className (newClass [])
         parents <- tail <$> classAndParents (Just className)
@@ -1014,7 +1024,7 @@ startClassDef className parent members = do
                       use $ msClasses . at n . _Just . cdVariables)
                 parents
         msClasses . at className .= Just (newClass parentVars)
-        mapM_ addClassVar members
+        mapM_ addClassVar members'
         use (msClasses . at className . _Just . cdVariables) >>= addConstructor
         msClass .= Just className
     addConstructor variables = do
@@ -1024,16 +1034,22 @@ startClassDef className parent members = do
             className
             [] $
             constructorBody variables
-    constructorBody variables =
-        ret . Just . AST.ConstantOperand . C.Struct Nothing False .
-        map (view cvInitializer) .
-        M.elems $
-        variables
+    constructorBody variables = do
+        let operand =
+                AST.ConstantOperand . C.Struct Nothing False .
+                map (view cvInitializer) .
+                M.elems $
+                variables
+        let expectedType = TClass (convertString className) . map (view cvType) . M.elems $ variables
+        ret . Just . snd =<< lowLevelCast operand expectedType
+    isFunctionPointerType (TPointer (TFunction _ _)) = True
+    isFunctionPointerType _ = False
     addClassVar (varName,(varType,varInitializer)) = do
         alreadyAdded <-
             M.member varName <$>
             use (msClasses . at className . _Just . cdVariables)
-        when alreadyAdded $ throwCodegenError $
+        when (alreadyAdded && Prelude.not (isFunctionPointerType varType)) $
+            throwCodegenError $
             format'
                 "variable {} is defined in class {} more than once"
                 (varName, className)

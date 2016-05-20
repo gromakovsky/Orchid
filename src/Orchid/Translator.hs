@@ -186,8 +186,12 @@ instance C.ToLLVM OT.FuncDef where
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
-        C.startClassDef (convertString clsName) (convertString <$> clsParent) =<<
-            members
+        join $
+            C.startClassDef
+                (convertString clsName)
+                (convertString <$> clsParent) <$>
+            members <*>
+            virtualMethods
         C.toLLVM clsBody
         C.finishClassDef
       where
@@ -200,6 +204,18 @@ instance C.ToLLVM OT.ClassDef where
             Just . (convertString dsVar, ) <$>
             ((,) <$> C.lookupType (convertString dsType) <*>
              C.toConstant dsExpr)
+        virtualMethods =
+            catMaybes <$>
+            (mapM payloadToVirtualFunction .
+             map OT.csPayload . OT.getClassSuite $
+             clsBody)
+        payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
+            Just . (convertString funcName, ) <$>
+            do args <- mapM (fmap fst . convertTypedArg) funcArgs
+               ret <-
+                   maybe (pure OT.TVoid) (C.lookupType . convertString) funcRet
+               return $ OT.TFunction ret args
+        payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
