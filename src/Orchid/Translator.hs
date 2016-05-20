@@ -287,22 +287,21 @@ instance C.ToCodegen OT.Expr C.TypedOperand where
                     C.call f [a', b']
     toCodegen (OT.EAtom a) = C.toCodegen a
 
+methodCall :: C.TypedOperand -> OT.Identifier -> [OT.Expr] -> C.Codegen C.TypedOperand
+methodCall varPtr@(OT.TPointer (OT.TClass className _),_) methodName exprs = do
+    let mangledName = C.mangleClassMethodName className methodName
+    fPtr <- C.lookupName $ convertString mangledName
+    args <- (varPtr :) <$> mapM C.toCodegen exprs
+    C.call fPtr args
+methodCall (t,_) _ _ =
+    C.throwCodegenError $
+    formatSingle' "attempt to call method of something strange (type is {})" t
+
 instance C.ToCodegen OT.AtomExpr C.TypedOperand where
     toCodegen (OT.AEAtom a) = C.toCodegen a
-    toCodegen (OT.AECall (OT.AEAccess (OT.AEAtom (OT.AIdentifier varName)) fieldName) exprs) = do
-        varPtr <- C.getPtr $ convertString varName
-        case varPtr of
-            (OT.TPointer (OT.TClass className _),_) -> do
-                let mangledName = C.mangleClassMethodName className fieldName
-                fPtr <-
-                    C.lookupName $ convertString mangledName
-                args <- (varPtr :) <$> mapM C.toCodegen exprs
-                C.call fPtr args
-            (t,_) ->
-                C.throwCodegenError $
-                formatSingle'
-                    "attempt to call method of something strange (type is {})"
-                    t
+    toCodegen (OT.AECall (OT.AEAccess expr methodName) exprs) = do
+        varPtr <- C.toCodegenPtr expr
+        methodCall varPtr methodName exprs
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
     toCodegen (OT.AEAccess expr fieldName) =
