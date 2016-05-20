@@ -199,13 +199,15 @@ All functions in standard library start with `std` prefix. Standard
 library contains the following functions:
 
 - `stdExit(int64)`
+
+  This function aborts execution of the program with given exit code
+  and prints a message to stderr.
+
 - `stdReadInt() → int64`
 - `stdReadBool() → bool`
 - `stdWriteInt(int64)`
 - `stdWriteBool(bool)`
 - `stdPower(int64, in64)`
-
-**TODO** Describe functions.
 
 ## Examples
 
