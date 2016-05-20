@@ -55,18 +55,23 @@ name, argument list, optional return type and `:` symbol. The next
 lines contain indented block with function's body. Argument list is
 enclosed in parenthesis and contains (possible empty) list of typed
 arguments delimited by `comma`. Trailing comma is permitted. Typed
-argument has a form `name : type`. Return type is separated by `→`
-(U+2192) character and represented as identifier. Function body is a
-sequence of statements. Nested function definitions are accepted by
-parser, but are prohibited in this version (the error is raised in
-such cases). Function names starting with `__` are reserved for
-internal usage by standard library.
+argument has a form `name : type`. Type of argument is an identifier
+optionally followed by `*` (to denote pointer type). Return type is
+separated by `→` (U+2192) character and represented as
+identifier. Function body is a sequence of statements. Nested function
+definitions are accepted by parser, but are prohibited in this version
+(the error is raised in such cases). Function names starting with `__`
+are reserved for internal usage by standard library.
 
 Example:
 
 ```
 def f(a : int64, b: int64) → int64:
     return a + b
+
+def q(a : A *) → int64:
+    (*a).z()
+    return 0
 ```
 
 ### Variable definition
@@ -152,14 +157,15 @@ The most simple expressions are constants and variables
 itself. Integer constants are represented as usual, boolean constants
 are `True` and `False`. More complex expressions are function calls
 and operator applications. Function call has a form `function(arg1,
-arg2)`. Operators may be unary (`not`, `+`, `-`) and binary (`or`,
-`and`, `<`, `>`, `==`, `<=`, `>=`, `!=`, `+`, `-`, `*`, `/`, `%`,
-`**`). `**` is power, the rest are intuitive enough. Expressions may
-be enclosed in parenthesis to influence priority in a standard way.
+arg2)`. Operators may be unary (`not`, `+`, `-`, `*`, `&`) and binary
+(`or`, `and`, `<`, `>`, `==`, `<=`, `>=`, `!=`, `+`, `-`, `*`, `/`,
+`%`, `**`). Unary `*` dereferences pointer, `&` takes pointer, `**` is
+power, the rest are intuitive enough. Expressions may be enclosed in
+parenthesis to influence priority in a standard way.
 
 Examples:
 
-`True`, `1 < 2`, `False or True`, `f(1)`, `not (f(5 + 1) % g())`.
+`True`, `1 < 2`, `False or True`, `f(1)`, `not (f(5 + 1) % g())`, `&a`.
 
 ### `while`
 
