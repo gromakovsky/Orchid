@@ -21,19 +21,46 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 
 ## Syntax
 
-Orchid's syntax is similar to the one used in Python programming language. However, it's extremely simplified and there are some changes because Orchid is statically typed and is not interpreted but compiled. Full grammar specification may be found in [grammar.txt](grammar.txt). Below is a less formal descprition of syntax.
+Orchid's syntax is similar to the one used in Python programming
+language. However, it's extremely simplified and there are some
+changes because Orchid is statically typed and is not interpreted but
+compiled. Full grammar specification may be found in
+[grammar.txt](grammar.txt). Below is a less formal descprition of
+syntax.
 
 ### Overall structure
 
-Input is a sequence of statements. Statement may be either simple or compound. Simple statement takes one line, while compound statement takes more than one line. Simple statements may consist of multiple substatements delimited by `;`. Comments start with `#` and last until the end of line. Comments and empty lines are completely ignored. Only function and global variable definitions are allowed as top-level statements (it may be changed in future versions).
+Input is a sequence of statements. Statement may be either simple or
+compound. Simple statement takes one line, while compound statement
+takes more than one line. Simple statements may consist of multiple
+substatements delimited by `;`. Comments start with `#` and last until
+the end of line. Comments and empty lines are completely ignored. Only
+function and global variable definitions are allowed as top-level
+statements (it may be changed in future versions).
 
 ### Indentation
 
-Compound statements use indentation to group sequence of statements into blocks. It is implemented just like in Python, i. e. by introducing two special tokens: `INDENT` and `DEDENT`. Full rules may be found on [Python website](https://docs.python.org/3/reference/lexical_analysis.html#indentation). There are a difference though: only spaces are valid in `Orchid`, input MUST NOT contain tab characters.
+Compound statements use indentation to group sequence of statements
+into blocks. It is implemented just like in Python, i. e. by
+introducing two special tokens: `INDENT` and `DEDENT`. Full rules may
+be found on
+[Python website](https://docs.python.org/3/reference/lexical_analysis.html#indentation). There
+are a difference though: only spaces are valid in `Orchid`, input MUST
+NOT contain tab characters.
 
 ### Function definition
 
-Function definition starts with `def` keyword followed by function name, argument list, optional return type and `:` symbol. The next lines contain indented block with function's body. Argument list is enclosed in parenthesis and contains (possible empty) list of typed arguments delimited by `comma`. Trailing comma is permitted. Typed argument has a form `name : type`. Return type is separated by `→` (U+2192) character and represented as identifier. Function body is a sequence of statements. Nested function definitions are accepted by parser, but are prohibited in this version (the error is raised in such cases). Function names starting with `__` are reserved for internal usage by standard library.
+Function definition starts with `def` keyword followed by function
+name, argument list, optional return type and `:` symbol. The next
+lines contain indented block with function's body. Argument list is
+enclosed in parenthesis and contains (possible empty) list of typed
+arguments delimited by `comma`. Trailing comma is permitted. Typed
+argument has a form `name : type`. Return type is separated by `→`
+(U+2192) character and represented as identifier. Function body is a
+sequence of statements. Nested function definitions are accepted by
+parser, but are prohibited in this version (the error is raised in
+such cases). Function names starting with `__` are reserved for
+internal usage by standard library.
 
 Example:
 
@@ -44,11 +71,16 @@ def f(a : int64, b: int64) → int64:
 
 ### Class definition
 
-Class definition starts with `class` keyword followed by class name, optional parent class in parenthesis and `:` symbol. The next lines contain indented block with class's body containing sequence of class statements. **TODO**
+Class definition starts with `class` keyword followed by class name,
+optional parent class in parenthesis and `:` symbol. The next lines
+contain indented block with class's body containing sequence of class
+statements. **TODO**
 
 ### Variable definition
 
-Variable definition may occur as a top-level statement (in this case it's global variable) or inside function body (local variable). It has a form `type name = value`.
+Variable definition may occur as a top-level statement (in this case
+it's global variable) or inside function body (local variable). It has
+a form `type name = value`.
 
 Example:
 
@@ -58,7 +90,8 @@ int64 a = 42
 
 ### `pass`
 
-There is a special keyword `pass` which doesn't do anything and may be used anywhere (even as top-level statement).
+There is a special keyword `pass` which doesn't do anything and may be
+used anywhere (even as top-level statement).
 
 Example:
 
@@ -69,7 +102,8 @@ while True:  # hang
 
 ### Control flow statements
 
-This version has only one control flow statement: `return`. It's represented using keyword `return` with optional expression after it.
+This version has only one control flow statement: `return`. It's
+represented using keyword `return` with optional expression after it.
 
 Example:
 
@@ -90,7 +124,14 @@ a = 1
 
 ### Expressions
 
-The most simple expressions are constants and variables itself. Integer constants are represented as usual, boolean constants are `True` and `False`. More complex expressions are function calls and operator applications. Function call has a form `function(arg1, arg2)`. Operators may be unary (`not`, `+`, `-`) and binary (`or`, `and`, `<`, `>`, `==`, `<=`, `>=`, `!=`, `+`, `-`, `*`, `/`, `%`, `**`). `**` is power, the rest are intuitive enough. Expressions may be enclosed in parenthesis to influence priority in a standard way.
+The most simple expressions are constants and variables
+itself. Integer constants are represented as usual, boolean constants
+are `True` and `False`. More complex expressions are function calls
+and operator applications. Function call has a form `function(arg1,
+arg2)`. Operators may be unary (`not`, `+`, `-`) and binary (`or`,
+`and`, `<`, `>`, `==`, `<=`, `>=`, `!=`, `+`, `-`, `*`, `/`, `%`,
+`**`). `**` is power, the rest are intuitive enough. Expressions may
+be enclosed in parenthesis to influence priority in a standard way.
 
 Examples:
 
@@ -98,7 +139,8 @@ Examples:
 
 ### `while`
 
-While statement starts with a keyword `while`, followed by condition expression, `:` character and indented block with body.
+While statement starts with a keyword `while`, followed by condition
+expression, `:` character and indented block with body.
 
 Example:
 
@@ -109,7 +151,10 @@ while a < b:
 
 ### `if`
 
-If statement start with a keyword `if`, followed by condition expression, `:` character and indent block with body. It may optionally contain `else:` statement on a separate line with the same indentation as `if` keyword.
+If statement start with a keyword `if`, followed by condition
+expression, `:` character and indent block with body. It may
+optionally contain `else:` statement on a separate line with the same
+indentation as `if` keyword.
 
 Example:
 
@@ -126,7 +171,8 @@ else:
 
 ## Standard library
 
-All functions in standard library start with `std` prefix. Standard library contains the following functions:
+All functions in standard library start with `std` prefix. Standard
+library contains the following functions:
 
 - `stdExit(int64)`
 - `stdReadInt() → int64`
@@ -143,21 +189,31 @@ Examples may be found in [examples directory](examples/).
 
 # Orchid compiler
 
-Orchid compiler (named `orchid`) is implemented in [Haskell](https://www.haskell.org/) programming language. Target platform is [LLVM](http://llvm.org/).
+Orchid compiler (named `orchid`) is implemented in
+[Haskell](https://www.haskell.org/) programming language. Target
+platform is [LLVM](http://llvm.org/).
 
 ## Build dependencies
 
-The only officially supported way to build this compiler is to use [stack](http://docs.haskellstack.org). Full list of dependencies is the following:
+The only officially supported way to build this compiler is to use
+[stack](http://docs.haskellstack.org). Full list of dependencies is
+the following:
 
 - LLVM 3.5
 - stack
 - `llvm-as` and `lli` are needed to run tests
 
-Note that by default stack will download and install correct version of `GHC` into isolated environment, that's why GHC is not listed in list of dependencies. You can modify this behavior by specifying `system-ghc: True` in [stack.yaml](stack.yaml). However, it may break compilation on some systems.
+Note that by default stack will download and install correct version
+of `GHC` into isolated environment, that's why GHC is not listed in
+list of dependencies. You can modify this behavior by specifying
+`system-ghc: True` in [stack.yaml](stack.yaml). However, it may break
+compilation on some systems.
 
 ## Usage
 
-Run `stack setup` and then `stack build` to build the compiler. Run `stack exec orchid -- <ARGUMENTS>` to run the compiler. Run `stack exec orchid -- --help` to get a full list of options.
+Run `stack setup` and then `stack build` to build the compiler. Run
+`stack exec orchid -- <ARGUMENTS>` to run the compiler. Run `stack
+exec orchid -- --help` to get a full list of options.
 
 If you want to run tests use `stack test Orchid` command.
 
