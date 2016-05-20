@@ -5,6 +5,7 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 ## Features
 
 - [x] standard types: `int64` (signed 64-bit integer) and `bool`
+- [x] pointer types
 - [x] statically typed global and local mutable variables
 - [x] arithmetical and boolean expressions (e. g. `+`, `%`, `**`, `or`, `not`, `>=`, etc.)
 - [x] `if` statement
@@ -14,6 +15,9 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 - [x] comments
 - [x] simple IO with basic error handling
 - [x] user-defined classes
+  - [x] public/private
+  - [x] inheritance
+  - [ ] virtual functions
 
 ## Syntax
 
