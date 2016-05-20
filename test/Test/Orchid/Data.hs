@@ -14,6 +14,7 @@ module Test.Orchid.Data
        , private_method_insideInput
        , private_method_outsideInput
        , inheritanceInput
+       , pointerInput
        , shapeInput
        ) where
 
@@ -76,6 +77,11 @@ inheritanceInput
     :: IsString s
     => s
 inheritanceInput = $(embedStringFile $ testPath "inheritance.orc")
+
+pointerInput
+    :: IsString s
+    => s
+pointerInput = $(embedStringFile $ testPath "pointer.orc")
 
 shapeInput
     :: IsString s

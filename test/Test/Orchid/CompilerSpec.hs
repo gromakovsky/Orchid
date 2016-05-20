@@ -32,6 +32,7 @@ spec =
                 checkOutput "class_method_inside.orc" class_method_insideInput "" "2\n1\n"
                 checkOutput "private_method_inside.orc" private_method_insideInput "" "2\n1\n"
                 checkOutput "inheritance.orc" inheritanceInput "" "10\n25\n"
+                checkOutput "pointer.orc" pointerInput "" "10\n"
                 checkOutput "shape.orc" shapeInput "" "0\n12\n3\n"
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorInput
