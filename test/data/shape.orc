@@ -1,6 +1,6 @@
 class Shape:
 
-    public def square() → int64:
+    public virtual def square() → int64:
         stdExit(19)
         return 0
 
@@ -10,7 +10,7 @@ class Point(Shape):
     private int64 x = 0
     private int64 y = 0
 
-    public def square() → int64:
+    public virtual def square() → int64:
         return 0
 
     public def getX() → int64:
@@ -33,7 +33,7 @@ class Circle(Shape):
     private Point p = Point()
     private int64 radius = 1
 
-    public def square() → int64:
+    public virtual def square() → int64:
         return 3 * radius * radius
 
     public def setRadius(r : int64):
@@ -53,7 +53,7 @@ class Rectangle(Shape):
     private Point p0 = Point()
     private Point p1 = Point()
 
-    public def square() → int64:
+    public virtual def square() → int64:
         int64 dx = abs(p0.getX() - p1.getX())
         int64 dy = abs(p0.getY() - p1.getY())
         return dx * dy
