@@ -7,7 +7,7 @@ module Orchid.Parser
 
 import           Control.Exception (throwIO)
 import           Data.Function     ((&))
-import           Data.Maybe        (catMaybes, fromMaybe)
+import           Data.Maybe        (catMaybes, fromMaybe, isJust)
 import           Data.Text         (Text)
 import qualified Data.Text.IO      as TIO
 import           Text.Parsec       ((<|>))
@@ -23,7 +23,8 @@ import           Orchid.Lexer      (LexerState, ampersandL, andL, arrowL,
                                     lexerState, lparenL, ltL, minusL, nameL,
                                     neL, newlineL, notL, numberL, orL, passL,
                                     percentL, plusL, privateL, publicL, returnL,
-                                    rparenL, semicolonL, slashL, starL, whileL)
+                                    rparenL, semicolonL, slashL, starL,
+                                    virtualL, whileL)
 import qualified Orchid.Token      as Tok
 import qualified Orchid.Types      as OT
 
@@ -204,7 +205,9 @@ parseClassStmt = OT.ClassStmt <$> parseAccessModifier <*> parsePayload
   where
     parsePayload =
         P.choice
-            [ P.try $ Left <$> parseFuncDef
+            [ P.try $
+              Left <$>
+              ((,) <$> (isJust <$> P.optionMaybe virtualL) <*> parseFuncDef)
             , Right <$> (parseDeclStmt <* newlineL)]
 
 parseAccessModifier :: Parser OT.AccessModifier

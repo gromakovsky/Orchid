@@ -48,6 +48,7 @@ module Orchid.Lexer
        , dedentL
        , privateL
        , publicL
+       , virtualL
        ) where
 
 import           Control.Exception    (throwIO)
@@ -152,6 +153,7 @@ lexerGen = Tok.makeTokenParser style
                               , "class"
                               , "private"
                               , "public"
+                              , "virtual"
                               , "True"
                               , "False"
                               , "if"
@@ -309,6 +311,9 @@ privateL = parseReserved "private" TokPrivate
 
 publicL :: Lexer
 publicL = parseReserved "public" TokPublic
+
+virtualL :: Lexer
+virtualL = parseReserved "virtual" TokVirtual
 
 -------------------------------------------------------------------------------
 -- Internals

@@ -48,7 +48,7 @@ validInput3 =
         [ "class Point:"
         , "  public int64 x = 0"
         , "  public int64 y = 0"
-        , "  public def print():"
+        , "  public virtual def print():"
         , "    magic(x, y,)"]
 
 validRes3 :: [T.Stmt]
@@ -66,7 +66,7 @@ validRes3 = [T.SCompound $ T.CSClass classDef]
     yDeclS = T.ClassStmt T.AMPublic $ Right yDecl
     yDecl = T.DeclStmt "int64" "y" zeroExpr
     zeroExpr = T.EAtom $ T.AEAtom $ T.ANumber 0
-    printDeclS = T.ClassStmt T.AMPublic $ Left printDecl
+    printDeclS = T.ClassStmt T.AMPublic $ Left (True, printDecl)
     printDecl =
         T.FuncDef "print" [] Nothing $
         T.Suite

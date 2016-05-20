@@ -35,5 +35,5 @@ typedarglist → typedarg (',' typedarg)* [',']
 typedarg → NAME ':' NAME [*]
 suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 class_suite → NEWLINE INDENT class_stmt+ DEDENT
-class_stmt → access_modifier (funcdef | decl_stmt NEWLINE)
+class_stmt → access_modifier (['virtual'] funcdef | decl_stmt NEWLINE)
 access_modifier → 'private' | 'public'

@@ -250,12 +250,12 @@ newtype ClassSuite = ClassSuite
     { getClassSuite :: [ClassStmt]
     } deriving (Show, Eq)
 
--- | Class statement is either function defition or variable
+-- | Class statement is either function defition (maybe virtual) or variable
 -- declaration prefixed with access modifier
--- class_stmt → access_modifier (funcdef | decl_stmt NEWLINE)
+-- class_stmt → access_modifier ('virtual' funcdef | decl_stmt NEWLINE)
 data ClassStmt = ClassStmt
     { csAccess  :: !AccessModifier
-    , csPayload :: !(Either FuncDef DeclStmt)
+    , csPayload :: !(Either (Bool, FuncDef) DeclStmt)
     } deriving (Show, Eq)
 
 -- | Access modifier determines how has access to function/variable in

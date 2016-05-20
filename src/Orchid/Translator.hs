@@ -205,7 +205,7 @@ instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
 
 instance C.ToLLVM OT.ClassStmt where
-    toLLVM OT.ClassStmt{csAccess = access,csPayload = Left f} = do
+    toLLVM OT.ClassStmt{csAccess = access,csPayload = Left (_, f)} = do
         C.toLLVM f
         when (access == OT.AMPrivate) $
             C.makeFuncPrivate $ convertString $ OT.funcName f

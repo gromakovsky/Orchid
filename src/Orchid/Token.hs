@@ -49,6 +49,7 @@ data Token
     | TokDedent
     | TokPublic
     | TokPrivate
+    | TokVirtual
     deriving (Show,Eq)
 
 tokenRepr :: Token -> Text
@@ -91,3 +92,4 @@ tokenRepr TokIndent = "<INDENT>"
 tokenRepr TokDedent = "<DEDENT>"
 tokenRepr TokPublic = "public"
 tokenRepr TokPrivate = "private"
+tokenRepr TokVirtual = "virtual"
