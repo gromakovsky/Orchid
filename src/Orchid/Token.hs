@@ -30,6 +30,7 @@ data Token
     | TokStar
     | TokSlash
     | TokPercent
+    | TokAmpersand
     | TokDoubleStar
     | TokLParen
     | TokRParen
@@ -71,6 +72,7 @@ tokenRepr TokMinus = "-"
 tokenRepr TokStar = "*"
 tokenRepr TokSlash = "/"
 tokenRepr TokPercent = "%"
+tokenRepr TokAmpersand = "&"
 tokenRepr TokDoubleStar = "**"
 tokenRepr TokLParen = "("
 tokenRepr TokRParen = ")"

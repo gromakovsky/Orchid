@@ -16,14 +16,14 @@ import qualified Text.Parsec.Expr  as E
 import           Text.Parsec.Text  (GenParser)
 
 import           Orchid.Error      (ParserException (ParserException))
-import           Orchid.Lexer      (LexerState, andL, arrowL, assignL, boolL,
-                                    classL, colonL, commaL, dedentL, defL, dotL,
-                                    doubleStarL, elseL, equalL, geL, gtL, ifL,
-                                    indentL, leL, lexerState, lparenL, ltL,
-                                    minusL, nameL, neL, newlineL, notL, numberL,
-                                    orL, passL, percentL, plusL, privateL,
-                                    publicL, returnL, rparenL, semicolonL,
-                                    slashL, starL, whileL)
+import           Orchid.Lexer      (LexerState, ampersandL, andL, arrowL,
+                                    assignL, boolL, classL, colonL, commaL,
+                                    dedentL, defL, dotL, doubleStarL, elseL,
+                                    equalL, geL, gtL, ifL, indentL, leL,
+                                    lexerState, lparenL, ltL, minusL, nameL,
+                                    neL, newlineL, notL, numberL, orL, passL,
+                                    percentL, plusL, privateL, publicL, returnL,
+                                    rparenL, semicolonL, slashL, starL, whileL)
 import qualified Orchid.Token      as Tok
 import qualified Orchid.Types      as OT
 
@@ -101,6 +101,7 @@ parseExpr = E.buildExpressionParser table parseEAtom
     r = E.AssocRight
     table =
         [ [binary doubleStarL OT.BinPower r]
+        , [unary starL OT.UnaryDeref, unary ampersandL OT.UnaryAddr]
         , [unary plusL OT.UnaryPlus, unary minusL OT.UnaryMinus]
         , [ binary starL OT.BinMult l
           , binary slashL OT.BinDiv l
@@ -183,7 +184,9 @@ parseClassDef =
     parseOptionalParent = P.optionMaybe $ P.between lparenL rparenL parseName
 
 parseTypedArgument :: Parser OT.TypedArgument
-parseTypedArgument = OT.TypedArgument <$> parseName <*> (colonL >> parseName)
+parseTypedArgument =
+    OT.TypedArgument <$> parseName <*> (colonL >> parseName) <*>
+    (maybe False (const True) <$> P.optionMaybe starL)
 
 parseSuite :: Parser OT.Suite
 parseSuite =

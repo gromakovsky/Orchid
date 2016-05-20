@@ -119,7 +119,8 @@ data ReturnStmt =
 -- comp_op → '<' | '>' | '==' | '<=' | '>=' | '!='
 -- arith_expr → term (('+' | '-') term)*
 -- term → factor (('*', '/', '%') factor)*
--- factor → ('+', '-') factor | power
+-- factor → ('+', '-') factor | memory
+-- memory → ('*', '&') memory | power
 -- power → atom_expr ['**' factor]
 data Expr
     = EUnary !UnaryOp
@@ -135,6 +136,8 @@ data UnaryOp
     = UnaryPlus
     | UnaryMinus
     | UnaryNot
+    | UnaryDeref
+    | UnaryAddr
     deriving (Show, Eq)
 
 -- | Binary operation is one of `or`, `and`, `<`, `>`, `==`, `<=`,
@@ -228,10 +231,11 @@ data ClassDef = ClassDef
     } deriving (Show,Eq)
 
 -- | Type argument consists of name and type.
--- typedarg → NAME ':' NAME
+-- typedarg → NAME ':' NAME [*]
 data TypedArgument = TypedArgument
-    { taName :: !Identifier
-    , taType :: !Identifier
+    { taName    :: !Identifier
+    , taType    :: !Identifier
+    , taPointer :: !Bool
     } deriving (Show, Eq)
 
 -- | Suite is basically a list of statements.

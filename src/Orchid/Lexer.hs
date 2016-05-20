@@ -29,6 +29,7 @@ module Orchid.Lexer
        , starL
        , slashL
        , percentL
+       , ampersandL
        , doubleStarL
        , lparenL
        , rparenL
@@ -143,7 +144,7 @@ lexerGen = Tok.makeTokenParser style
         { Tok.commentLine = "#"
         , Tok.identStart = letter <|> char '_'
         , Tok.identLetter = alphaNum <|> oneOf "_'"
-        , Tok.opStart = oneOf "!<>=+-*/%"
+        , Tok.opStart = oneOf "!<>=+-*/%&"
         , Tok.opLetter = Tok.opStart style
         , Tok.reservedNames = [ "pass"
                               , "return"
@@ -169,6 +170,7 @@ lexerGen = Tok.makeTokenParser style
                                 , "*"
                                 , "/"
                                 , "%"
+                                , "&"
                                 , "**"]
         , Tok.caseSensitive = True
         }
@@ -247,6 +249,9 @@ slashL = parseOperator "/" TokSlash
 
 percentL :: Lexer
 percentL = parseOperator "%" TokPercent
+
+ampersandL :: Lexer
+ampersandL = parseOperator "&" TokAmpersand
 
 doubleStarL :: Lexer
 doubleStarL = parseOperator "**" TokDoubleStar

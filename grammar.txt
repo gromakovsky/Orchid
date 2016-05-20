@@ -16,7 +16,8 @@ comparison → arith_expr (comp_op arith_expr)*
 comp_op → '<' | '>' | '==' | '<=' | '>=' | '!='
 arith_expr → term (('+' | '-') term)*
 term → factor (('*', '/', '%') factor)*
-factor → ('+', '-') factor | power
+factor → ('+', '-') factor | memory
+memory → ('*', '&') memory | power
 power → atom_expr ['**' factor]
 atom_expr → atom trailer*
 atom → '(' expr ')' | NAME | NUMBER | 'True' | 'False'
@@ -31,7 +32,7 @@ funcdef → 'def' NAME parameters ['→' NAME] ':' suite
 classdef → 'class' NAME ['(' NAME ')'] ':' class_suite
 parameters → '(' [typedarglist] ')'
 typedarglist → typedarg (',' typedarg)* [',']
-typedarg → NAME ':' NAME
+typedarg → NAME ':' NAME [*]
 suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 class_suite → NEWLINE INDENT class_stmt+ DEDENT
 class_stmt → access_modifier (funcdef | decl_stmt NEWLINE)
