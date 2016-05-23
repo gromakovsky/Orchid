@@ -17,6 +17,11 @@ library
                      , Orchid.Translator
                      , Orchid.Types
   other-modules:       Orchid.ParsecToken
+                     , Orchid.Codegen.Body
+                     , Orchid.Codegen.Common
+                     , Orchid.Codegen.Constant
+                     , Orchid.Codegen.Module
+                     , Orchid.Codegen.Type
   build-depends:       base >= 4.8
                      , containers
                      , file-embed

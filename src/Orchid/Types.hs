@@ -3,7 +3,6 @@
 module Orchid.Types
        ( Identifier
        , Number
-       , Type (..)
        , Input (..)
        , Stmt (..)
        , SimpleStmt (..)
@@ -29,26 +28,11 @@ module Orchid.Types
        , AccessModifier (..)
        ) where
 
-import           Data.Int            (Int64)
-import           Data.Text           (Text)
-import           Data.Text.Buildable (Buildable (build))
+import           Data.Int  (Int64)
+import           Data.Text (Text)
 
 type Identifier = Text
 type Number = Int64
-
--- | Types in Orchid.
-data Type
-    = TInt64
-    | TBool
-    | TVoid
-    | TPointer Type
-    | TFunction Type [Type]
-    | TClass Text
-             [Type]
-    deriving (Show, Eq)
-
-instance Buildable Type where
-    build = build . show
 
 -- | Representation of input file passed to compiler.
 -- Input file contains list of statements.

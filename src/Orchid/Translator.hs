@@ -20,6 +20,7 @@ import qualified Data.Map                as M
 import           Data.Maybe              (catMaybes)
 import           Data.String             (IsString)
 import           Data.String.Conversions (convertString)
+import           Data.Text               (Text)
 import qualified LLVM.General            as G
 import qualified LLVM.General.AST        as AST
 import           LLVM.General.Context    (withContext)
@@ -31,7 +32,7 @@ import           Orchid.Error            (CodegenException,
                                           LowLevelException (LowLevelException))
 import qualified Orchid.Types            as OT
 
-type ModuleName = String
+type ModuleName = Text
 
 --------------------------------------------------------------------------------
 -- Exported
@@ -52,9 +53,9 @@ translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
             preludeVariables
     preludeFunctions =
         M.fromList
-            [ ("stdReadInt", C.FunctionData OT.TInt64 [])
-            , ("stdWriteInt", C.FunctionData OT.TVoid [OT.TInt64])
-            , ("stdExit", C.FunctionData OT.TVoid [OT.TInt64])]
+            [ ("stdReadInt", C.FunctionData C.TInt64 [])
+            , ("stdWriteInt", C.FunctionData C.TVoid [C.TInt64])
+            , ("stdExit", C.FunctionData C.TVoid [C.TInt64])]
     preludeClasses = M.empty
     preludeVariables = M.empty
 
@@ -77,7 +78,10 @@ translate mName inp continuation =
 
 translateToFile :: FilePath -> OT.Input -> IO ()
 translateToFile fp input =
-    translate fp input (handleError . G.writeLLVMAssemblyToFile (G.File fp))
+    translate
+        (convertString fp)
+        input
+        (handleError . G.writeLLVMAssemblyToFile (G.File fp))
 
 --------------------------------------------------------------------------------
 -- External
@@ -101,13 +105,12 @@ handleFatalError =
     either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
     runExceptT
 
-convertTypedArg :: OT.TypedArgument -> C.LLVM (OT.Type, C.Name)
+convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, C.Name)
 convertTypedArg OT.TypedArgument{..} =
-    (, C.Name (convertString taName)) . pointerIfNeeded <$>
-    C.lookupType (convertString taType)
+    (, convertString taName) . pointerIfNeeded <$> C.lookupType taType
   where
     pointerIfNeeded
-      | taPointer = OT.TPointer
+      | taPointer = C.TPointer
       | otherwise = id
 
 --------------------------------------------------------------------------------
@@ -135,8 +138,8 @@ instance C.ToLLVM OT.SmallStmt where
 instance C.ToLLVM OT.DeclStmt where
     toLLVM OT.DeclStmt{..} =
         join $
-        C.addGlobalVariable <$> C.lookupType (convertString dsType) <*>
-        pure (convertString dsVar) <*>
+        C.addGlobalVariable <$> C.lookupType dsType <*>
+        pure dsVar <*>
         pure dsExpr
 
 instance C.ToLLVM OT.CompoundStmt where
@@ -149,15 +152,14 @@ instance C.ToLLVM OT.CompoundStmt where
 
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
-        ret <- maybe (return OT.TVoid) (C.lookupType . convertString) funcRet
+        ret <- maybe (return C.TVoid) C.lookupType funcRet
         maybe (globalCase ret) (classCase ret) =<< C.getActiveClass
       where
-        fromName (AST.Name s) = s
+        fromName (AST.Name s) = convertString s
         fromName _ = error "fromName failed"
         globalCase ret = do
             args <- mapM convertTypedArg funcArgs
-            C.addFuncDef ret (convertString funcName) args $
-                bodyCodegenGlobal args
+            C.addFuncDef ret funcName args $ bodyCodegenGlobal args
         bodyCodegenGlobal args = do
             mapM_ codegenArgument args
             C.toCodegen funcBody
@@ -170,14 +172,11 @@ instance C.ToLLVM OT.FuncDef where
         classCase ret className = do
             ptrType <- C.classPointerType className
             let thisArg = (ptrType, C.thisPtrName)
-                mangledFuncName =
-                    C.mangleClassMethodName
-                        (convertString className)
-                        (convertString funcName)
+                mangledFuncName = C.mangleClassMethodName className funcName
             args <- (thisArg :) <$> mapM convertTypedArg funcArgs
             C.addFuncDef ret mangledFuncName args $ bodyCodegenClass args
         bodyCodegenClass args = do
-            let (thisType@(OT.TPointer classType),thisName) = head args
+            let (thisType@(C.TPointer classType),thisName) = head args
             C.addVariable (fromName thisName) classType $
                 ( thisType
                 , AST.LocalReference (C.orchidTypeToLLVM thisType) thisName)
@@ -186,12 +185,7 @@ instance C.ToLLVM OT.FuncDef where
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
-        join $
-            C.startClassDef
-                (convertString clsName)
-                (convertString <$> clsParent) <$>
-            members <*>
-            virtualMethods
+        join $ C.startClassDef clsName clsParent <$> members <*> virtualMethods
         C.toLLVM clsBody
         C.finishClassDef
       where
@@ -201,20 +195,18 @@ instance C.ToLLVM OT.ClassDef where
              clsBody)
         payloadToMember (Left _) = pure Nothing
         payloadToMember (Right OT.DeclStmt{..}) =
-            Just . (convertString dsVar, ) <$>
-            ((,) <$> C.lookupType (convertString dsType) <*>
-             C.toConstant dsExpr)
+            Just . (dsVar, ) <$>
+            ((,) <$> C.lookupType (dsType) <*> C.toConstant dsExpr)
         virtualMethods =
             catMaybes <$>
             (mapM payloadToVirtualFunction .
              map OT.csPayload . OT.getClassSuite $
              clsBody)
         payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
-            Just . (convertString funcName, ) <$>
+            Just . (funcName, ) <$>
             do args <- mapM (fmap fst . convertTypedArg) funcArgs
-               ret <-
-                   maybe (pure OT.TVoid) (C.lookupType . convertString) funcRet
-               return $ OT.TFunction ret args
+               ret <- maybe (pure C.TVoid) C.lookupType funcRet
+               return $ C.TFunction ret args
         payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.ClassSuite where
@@ -224,10 +216,10 @@ instance C.ToLLVM OT.ClassStmt where
     toLLVM OT.ClassStmt{csAccess = access,csPayload = Left (_, f)} = do
         C.toLLVM f
         when (access == OT.AMPrivate) $
-            C.makeFuncPrivate $ convertString $ OT.funcName f
+            C.makeFuncPrivate $ OT.funcName f
     toLLVM OT.ClassStmt{csAccess = access,csPayload = Right v} = do
         when (access == OT.AMPrivate) $
-            C.makeVarPrivate $ convertString $ OT.dsVar v
+            C.makeVarPrivate $ OT.dsVar v
 
 --------------------------------------------------------------------------------
 -- C.ToCodegen
@@ -248,11 +240,11 @@ instance C.ToCodegen OT.SmallStmt () where
 
 instance C.ToCodegen OT.DeclStmt () where
     toCodegen OT.DeclStmt{..} = do
-        t <- C.lookupType $ convertString dsType
+        t <- C.lookupType dsType
         addr <- C.alloca t
         val <- C.toCodegen dsExpr
         C.store addr val
-        C.addVariable (convertString dsVar) t addr
+        C.addVariable dsVar t addr
 
 instance C.ToCodegen OT.ExprStmt () where
     toCodegen OT.ExprStmt{..} = do
@@ -304,9 +296,9 @@ instance C.ToCodegen OT.Expr C.TypedOperand where
     toCodegen (OT.EAtom a) = C.toCodegen a
 
 methodCall :: C.TypedOperand -> OT.Identifier -> [OT.Expr] -> C.Codegen C.TypedOperand
-methodCall varPtr@(OT.TPointer (OT.TClass className _),_) methodName exprs = do
+methodCall varPtr@(C.TPointer (C.TClass className _),_) methodName exprs = do
     let mangledName = C.mangleClassMethodName className methodName
-    fPtr <- C.lookupName $ convertString mangledName
+    fPtr <- C.lookupName mangledName
     args <- (varPtr :) <$> mapM C.toCodegen exprs
     C.call fPtr args
 methodCall (t,_) _ _ =
@@ -321,13 +313,13 @@ instance C.ToCodegen OT.AtomExpr C.TypedOperand where
     toCodegen (OT.AECall f exprs) =
         join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
     toCodegen (OT.AEAccess expr fieldName) =
-        flip C.lookupMember (convertString fieldName) =<< C.toCodegenPtr expr
+        flip C.lookupMember fieldName =<< C.toCodegenPtr expr
 
 instance C.ToCodegen OT.Atom C.TypedOperand where
     toCodegen (OT.AExpr e) = C.toCodegen e
-    toCodegen (OT.AIdentifier v) = C.lookupName $ convertString v
-    toCodegen (OT.ANumber n) = (OT.TInt64,) . AST.ConstantOperand <$> C.toConstant n
-    toCodegen (OT.ABool b) = (OT.TBool,) . AST.ConstantOperand <$> C.toConstant b
+    toCodegen (OT.AIdentifier v) = C.lookupName v
+    toCodegen (OT.ANumber n) = (C.TInt64,) . AST.ConstantOperand <$> C.toConstant n
+    toCodegen (OT.ABool b) = (C.TBool,) . AST.ConstantOperand <$> C.toConstant b
 
 instance C.ToCodegen OT.CompoundStmt () where
     toCodegen (OT.CSIf s) = C.toCodegen s
@@ -394,11 +386,11 @@ instance C.ToCodegenPtr OT.AtomExpr where
             "can't create lvalue ptr from result of function call"
     toCodegenPtr (OT.AEAccess expr memberName) = do
         exprPtr <- C.toCodegenPtr expr
-        C.getMemberPtr exprPtr $ convertString memberName
+        C.getMemberPtr exprPtr memberName
 
 instance C.ToCodegenPtr OT.Atom where
     toCodegenPtr (OT.AExpr e) = C.toCodegenPtr e
-    toCodegenPtr (OT.AIdentifier i) = C.getPtr $ convertString i
+    toCodegenPtr (OT.AIdentifier i) = C.getPtr i
     toCodegenPtr _ = C.throwCodegenError "can't create lvalue ptr from constant"
 
 --------------------------------------------------------------------------------
@@ -414,7 +406,7 @@ instance C.ToConstant OT.Expr where
 instance C.ToConstant OT.AtomExpr where
     toConstant (OT.AEAtom a) = C.toConstant a
     toConstant (OT.AECall (OT.AEAtom (OT.AIdentifier f)) _) =
-        C.complexConstant (convertString f) []
+        C.complexConstant f []
     toConstant (OT.AECall _ _) =
         C.throwCodegenError "function call can't be used as constant"
     toConstant (OT.AEAccess _ _) =

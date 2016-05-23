@@ -17,4 +17,4 @@ flags:
   llvm-general:
     shared-llvm: true
 
-system-ghc: false
+system-ghc: true
