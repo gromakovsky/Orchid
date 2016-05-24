@@ -108,7 +108,7 @@ script:
 - |
   case "$BUILD" in
     stack)
-      # stack --no-terminal $ARGS test --haddock --no-haddock-deps Orchid
-      stack --no-terminal $ARGS test Orchid
+      stack --no-terminal $ARGS test --haddock --no-haddock-deps Orchid
+      # stack --no-terminal $ARGS test Orchid
       ;;
   esac
