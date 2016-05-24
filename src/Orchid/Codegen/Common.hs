@@ -32,7 +32,7 @@ module Orchid.Codegen.Common
        , ClassesMap
        , HasClasses (..)
        , lookupType
-       , classPointerType
+       , lookupClassType
        , classAndParents
        , parentClass
        , isSubClass
@@ -120,16 +120,21 @@ mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
 
 type TypedOperand = (Type, AST.Operand)
 
+-- | VariableData type represents information about variable stored somewhere.
 data VariableData = VariableData
-    { vdType       :: Type
-    , vdPtrOperand :: AST.Operand
+    { vdType       :: Type         -- ^ Type of variable
+    , vdPtrOperand :: AST.Operand  -- ^ Pointer operand (it's type is
+                                   -- a pointer to vdType)
     } deriving (Show)
 
 variableDataToTypedOperand :: VariableData -> TypedOperand
-variableDataToTypedOperand VariableData {..} = (vdType, vdPtrOperand)
+variableDataToTypedOperand VariableData {..} = (TPointer vdType, vdPtrOperand)
 
 type VariablesMap = M.Map Text VariableData
 
+-- | FunctionData represents information about function.
+-- It doesn't store Operand because it's easily constructible from
+-- function name.
 data FunctionData = FunctionData
     { fdRetType  :: Type
     , fdArgTypes :: [Type]
@@ -172,6 +177,8 @@ mkClassData = ClassData
 
 type ClassesMap = M.Map Text ClassData
 
+-- | HasClasses type class abstracts over types which provide access
+-- to ClassesMap.
 class HasClasses s  where
     classesLens :: Lens' s ClassesMap
 
@@ -187,25 +194,19 @@ classType className =
     TClass className .
     map (view cvType) . M.elems . view cdVariables
 
+throwUnknownType :: (MonadError CodegenException m) => Text -> m a
+throwUnknownType = throwCodegenError . formatSingle' "unknown type: {}"
+
 lookupType
     :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> m Type
-lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
-  where
-    throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
-    tryClass =
-        maybe throwUnknownType (return . classType t) =<< use (classesLens . at t)
+lookupType t = maybe (lookupClassType t) return $ M.lookup t predefinedTypes
 
-classPointerType
+lookupClassType
     :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> m Type
-classPointerType t =
-    maybe
-        throwUnknownType
-        (return . TPointer  . classType t) =<<
-    use (classesLens . at t)
-  where
-    throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
+lookupClassType t =
+    maybe (throwUnknownType t) (return . classType t) =<< use (classesLens . at t)
 
 classAndParents
     :: (MonadState s m, HasClasses s)
@@ -215,12 +216,17 @@ classAndParents (Just className) = do
     p <- parentClass className
     (className :) <$> classAndParents p
 
+-- | This function returns name of parent class of the given class (if
+-- any).
 parentClass
     :: (MonadState s m, HasClasses s)
     => Text -> m (Maybe Text)
 parentClass className =
     (>>= view cdParent) <$> use (classesLens . at className)
 
+-- | This function tests whether class identified by the first
+-- argument is a subclass of the class identified by the second
+-- argument.
 isSubClass
     :: (MonadState s m, HasClasses s)
     => Text -> Text -> m Bool

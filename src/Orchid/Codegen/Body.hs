@@ -9,12 +9,20 @@
 
 module Orchid.Codegen.Body
        (
-         -- Codegen
+         -- BodyGen
          BodyGen
        , ToBody (toBody)
        , ToBodyPtr (toBodyPtr)
-       , createBlocks
+
+         -- Block stack
+       , addEmptyBlock
+       , setBlock
+       , removeBlock
+       , isTerminated
+
+         -- BodyGen execution
        , execBodyGen
+       , createBlocks
 
          -- Symbol table
        , addVariable
@@ -22,14 +30,6 @@ module Orchid.Codegen.Body
        , lookupMember
        , getPtr
        , getMemberPtr
-
-         -- Block stack
-       , addBlock
-       , setBlock
-       , removeBlock
-       , getCurrentBlockName
-       , getCurrentBlock
-       , isTerminated
 
          -- Unary operators
        , neg
@@ -74,8 +74,7 @@ import           Control.Monad.Except               (ExceptT,
                                                      runExceptT)
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
-import           Data.Bifunctor                     (first)
-import           Data.Function                      (on, (&))
+import           Data.Function                      (on)
 import           Data.List                          (sortBy)
 import qualified Data.Map                           as M
 import           Data.Maybe                         (isJust)
@@ -118,6 +117,10 @@ import           Orchid.Codegen.Constant            (constBool, constInt32,
 import           Orchid.Codegen.Type                (Type (..))
 import           Orchid.Error                       (CodegenException)
 
+-------------------------------------------------------------------------------
+-- Internal stuff
+-------------------------------------------------------------------------------
+
 type Named = AST.Named
 
 -- | BlockState corresponds to LLVM's BasicBlock. It is constructed
@@ -142,7 +145,7 @@ $(makeLenses ''BlockState)
 type BlocksMap = M.Map AST.Name BlockState
 
 -------------------------------------------------------------------------------
--- Body State
+-- BodyState
 -------------------------------------------------------------------------------
 
 -- | BodyState represents all the state used by function body
@@ -204,14 +207,52 @@ class ToBodyPtr a where
     toBodyPtr :: a -> BodyGen TypedOperand
 
 -------------------------------------------------------------------------------
+-- BodyGen blocks
+-------------------------------------------------------------------------------
+
+addEmptyBlock :: Text -> BodyGen AST.Name
+addEmptyBlock blockName = do
+    ix <- fromIntegral . M.size <$> use bsBlocks
+    names <- use bsNames
+    let new = emptyBlock ix
+        (qname,supply) = uniqueName blockName names
+        astName = convertString qname
+    bsBlocks %= M.insert astName new
+    bsNames .= supply
+    return astName
+
+setBlock :: AST.Name -> BodyGen ()
+setBlock = (bsCurrentBlock .=)
+
+-- | Remove block with given name if it exists. Caller is reponsible
+-- for ensuring that it is not referenced.
+removeBlock :: AST.Name -> BodyGen ()
+removeBlock name = bsBlocks %= M.delete name
+
+getCurrentBlock :: BodyGen BlockState
+getCurrentBlock = do
+    v <- M.lookup <$> use bsCurrentBlock <*> use bsBlocks
+    maybe
+        (throwCodegenError . formatSingle' "no such block: {}" =<<
+         use bsCurrentBlock)
+        return
+        v
+
+isTerminated :: BodyGen Bool
+isTerminated = isJust . view bsTerm <$> getCurrentBlock
+
+modifyCurrentBlock :: (BlockState -> BlockState) -> BodyGen ()
+modifyCurrentBlock f = do
+    currentBlock <- getCurrentBlock
+    name <- use bsCurrentBlock
+    bsBlocks %= M.insert name (f currentBlock)
+
+-------------------------------------------------------------------------------
 -- BodyGen execution
 -------------------------------------------------------------------------------
 
 sortBlocks :: [(AST.Name, BlockState)] -> [(AST.Name, BlockState)]
 sortBlocks = sortBy (compare `on` (view bsIdx . snd))
-
-createBlocks :: BodyState -> Either CodegenException [G.BasicBlock]
-createBlocks = mapM makeBlock . sortBlocks . M.toList . view bsBlocks
 
 makeBlock :: (AST.Name, BlockState) -> Either CodegenException G.BasicBlock
 makeBlock (l,(BlockState _ s t)) = G.BasicBlock l s <$> makeTerm t
@@ -234,20 +275,21 @@ mkBodyState
     -> VariablesMap
     -> Maybe Text
     -> BodyState
-mkBodyState functions privateFunctions classes symbols activeClass =
-    execState (runExceptT . getBodyGen $ addBlock entryBlockName) $
+mkBodyState functions privateFunctions classes variables activeClass =
+    execState (runExceptT . getBodyGen $ addEmptyBlock entryBlockName) $
     BodyState
     { _bsCurrentBlock = entryBlockName
     , _bsBlocks = M.empty
     , _bsFunctions = functions
     , _bsPrivateFunctions = privateFunctions
     , _bsClasses = classes
-    , _bsVariables = symbols
+    , _bsVariables = variables
     , _bsCount = 0
     , _bsNames = M.empty
     , _bsActiveClass = activeClass
     }
 
+-- | Execute BodyGen to produce final BodyState.
 execBodyGen
     :: FunctionsMap
     -> S.Set Text
@@ -256,13 +298,17 @@ execBodyGen
     -> Maybe Text
     -> BodyGen a
     -> Either CodegenException BodyState
-execBodyGen functions privateFunctions classes symbols activeClass =
+execBodyGen functions privateFunctions classes variables activeClass =
     f . flip runState initial . runExceptT . getBodyGen
   where
     initial =
-        mkBodyState functions privateFunctions classes symbols activeClass
+        mkBodyState functions privateFunctions classes variables activeClass
     f (Left e,_) = Left e
     f (_,s') = Right s'
+
+-- | Extract BasicBlocks from BodyState.
+createBlocks :: BodyState -> Either CodegenException [G.BasicBlock]
+createBlocks = mapM makeBlock . sortBlocks . M.toList . view bsBlocks
 
 -------------------------------------------------------------------------------
 -- Basic BodyGen operations
@@ -276,8 +322,7 @@ genUnnamed = do
 instr :: Type -> AST.Instruction -> BodyGen TypedOperand
 instr retType ins = do
     name <- genUnnamed
-    currentBlock <- getCurrentBlock
-    setCurrentBlock $ currentBlock & bsInstructions <>~ [name AST.:= ins]
+    modifyCurrentBlock $ bsInstructions <>~ [name AST.:= ins]
     return $ (retType, AST.LocalReference (orchidTypeToLLVM retType) name)
 
 terminator :: Named AST.Terminator -> BodyGen (AST.Named AST.Terminator)
@@ -285,50 +330,27 @@ terminator trm =
     trm <$
     do currentBlock <- getCurrentBlock
        unless (isJust $ currentBlock ^. bsTerm) $
-           setCurrentBlock $ currentBlock & bsTerm .~ Just trm
+           modifyCurrentBlock $ bsTerm .~ Just trm
 
--------------------------------------------------------------------------------
--- BodyGen blocks
--------------------------------------------------------------------------------
-
-addBlock :: Text -> BodyGen AST.Name
-addBlock blockName = do
-    ix <- fromIntegral . M.size <$> use bsBlocks
-    names <- use bsNames
-    let new = emptyBlock ix
-        (qname,supply) = uniqueName blockName names
-        astName = convertString qname
-    bsBlocks %= M.insert astName new
-    bsNames .= supply
-    return astName
-
-setBlock :: AST.Name -> BodyGen ()
-setBlock = (bsCurrentBlock .=)
-
--- | Remove block with given name if it exists. Caller is reponsible
--- for ensuring that it is not referenced.
-removeBlock :: AST.Name -> BodyGen ()
-removeBlock name = bsBlocks %= M.delete name
-
-getCurrentBlockName :: BodyGen AST.Name
-getCurrentBlockName = use bsCurrentBlock
-
-getCurrentBlock :: BodyGen BlockState
-getCurrentBlock = do
-    v <- M.lookup <$> use bsCurrentBlock <*> use bsBlocks
-    maybe
-        (throwCodegenError . formatSingle' "no such block: {}" =<<
-         use bsCurrentBlock)
-        return
-        v
-
-isTerminated :: BodyGen Bool
-isTerminated = isJust . view bsTerm <$> getCurrentBlock
-
-setCurrentBlock :: BlockState -> BodyGen ()
-setCurrentBlock bs = do
-    name <- use bsCurrentBlock
-    bsBlocks %= M.insert name bs
+checkTypes :: Text -> [Type] -> [TypedOperand] -> BodyGen ()
+checkTypes funcName expectedTypes args
+  | length expectedTypes /= length args =
+      throwCodegenError $
+      format' "{}: incorrect number of arguments{}" (funcName, endMsg)
+  | Prelude.and $
+        zipWith
+            (\t (t',_) ->
+                  t == t')
+            expectedTypes
+            args =
+      return ()
+  | otherwise =
+      throwCodegenError $
+      format' "{}: incorrect argument type{}" (funcName, endMsg)
+  where
+    endMsg =
+        format' ", expected types: {}, received types: {}"
+            (listBuilderJSON expectedTypes, listBuilderJSON $ map fst args)
 
 -------------------------------------------------------------------------------
 -- Variables, functions and classes
@@ -431,7 +453,7 @@ getPtrMaybe varName =
     (<|>) <$>
     use
         (bsVariables .
-         at varName . to (fmap (first TPointer . variableDataToTypedOperand))) <*>
+         at varName . to (fmap variableDataToTypedOperand)) <*>
     getThisMemberPtr varName
 
 getThisMemberPtr :: Text -> BodyGen (Maybe TypedOperand)
@@ -457,26 +479,6 @@ not = xor $ (TBool, AST.ConstantOperand $ constBool True)
 -- Binary operations
 -------------------------------------------------------------------------------
 
-checkTypes :: Text -> [Type] -> [TypedOperand] -> BodyGen ()
-checkTypes funcName expectedTypes args
-  | length expectedTypes /= length args =
-      throwCodegenError $
-      format' "{}: incorrect number of arguments{}" (funcName, endMsg)
-  | Prelude.and $
-        zipWith
-            (\t (t',_) ->
-                  t == t')
-            expectedTypes
-            args =
-      return ()
-  | otherwise =
-      throwCodegenError $
-      format' "{}: incorrect argument type{}" (funcName, endMsg)
-  where
-    endMsg =
-        format' ", expected types: {}, received types: {}"
-            (listBuilderJSON expectedTypes, listBuilderJSON $ map fst args)
-
 or, and, xor :: TypedOperand -> TypedOperand -> BodyGen TypedOperand
 or op1@(_,a) op2@(_,b) =
     checkTypes "or" [TBool, TBool] [op1, op2] >> instr TBool (AST.Or a b [])
@@ -485,12 +487,17 @@ and op1@(_,a) op2@(_,b) =
 xor op1@(_,a) op2@(_,b) =
     checkTypes "xor" [TBool, TBool] [op1, op2] >> instr TBool (AST.Xor a b [])
 
-cmp :: IP.IntegerPredicate -> TypedOperand -> TypedOperand -> BodyGen TypedOperand
+cmp :: IP.IntegerPredicate
+    -> TypedOperand
+    -> TypedOperand
+    -> BodyGen TypedOperand
 cmp cond op1@(_,a) op2@(_,b) =
     checkTypes "cmp" [TInt64, TInt64] [op1, op2] >>
     instr TBool (AST.ICmp cond a b [])
 
-lessThan, greaterThan, equal, lessOrEqual, notEqual, greaterOrEqual :: TypedOperand -> TypedOperand -> BodyGen TypedOperand
+lessThan, greaterThan, equal, lessOrEqual, notEqual, greaterOrEqual :: TypedOperand
+                                                                    -> TypedOperand
+                                                                    -> BodyGen TypedOperand
 lessThan = cmp IP.SLT
 greaterThan = cmp IP.SGT
 equal = cmp IP.EQ
@@ -582,7 +589,7 @@ store (ptrType,ptr) (valType,val) = do
     unless (ptrType == TPointer valType) $
         throwCodegenError $
         format'
-            "can't store value of type {} to the pointer of type {}"
+            "can't store value of type {} when address has type {}"
             (valType, ptrType)
     () <$ instr TVoid (AST.Store False ptr val Nothing 0 [])
 

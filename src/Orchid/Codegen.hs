@@ -16,13 +16,13 @@ module Orchid.Codegen
 import           Orchid.Codegen.Body     as Exports
 import           Orchid.Codegen.Common   as Exports (FunctionData (..),
                                                      TypedOperand,
-                                                     classPointerType,
+                                                     lookupClassType,
                                                      lookupType,
                                                      mangleClassMethodName,
                                                      orchidTypeToLLVM,
                                                      thisPtrName,
                                                      throwCodegenError)
-import           Orchid.Codegen.Constant as Exports
+import           Orchid.Codegen.Constant as Exports hiding (constInt32)
 import           Orchid.Codegen.Module   as Exports
 import           Orchid.Codegen.Type     as Exports
 

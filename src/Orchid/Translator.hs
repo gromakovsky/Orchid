@@ -105,9 +105,9 @@ handleFatalError =
     either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
     runExceptT
 
-convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, C.Name)
+convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, Text)
 convertTypedArg OT.TypedArgument{..} =
-    (, convertString taName) . pointerIfNeeded <$> C.lookupType taType
+    (, taName) . pointerIfNeeded <$> C.lookupType taType
   where
     pointerIfNeeded
       | taPointer = C.TPointer
@@ -136,11 +136,9 @@ instance C.ToLLVM OT.SmallStmt where
         C.throwCodegenError "top-level flow statements are not allowed"
 
 instance C.ToLLVM OT.DeclStmt where
-    toLLVM OT.DeclStmt{..} =
-        join $
-        C.addGlobalVariable <$> C.lookupType dsType <*>
-        pure dsVar <*>
-        pure dsExpr
+    toLLVM OT.DeclStmt{..} = do
+        t <- C.lookupType dsType
+        C.addGlobalVariable t dsVar dsExpr
 
 instance C.ToLLVM OT.CompoundStmt where
     toLLVM (OT.CSIf _) =
@@ -153,35 +151,8 @@ instance C.ToLLVM OT.CompoundStmt where
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
         ret <- maybe (return C.TVoid) C.lookupType funcRet
-        maybe (globalCase ret) (classCase ret) =<< C.getActiveClass
-      where
-        fromName (AST.Name s) = convertString s
-        fromName _ = error "fromName failed"
-        globalCase ret = do
-            args <- mapM convertTypedArg funcArgs
-            C.addFuncDef ret funcName args $ bodyCodegenGlobal args
-        bodyCodegenGlobal args = do
-            mapM_ codegenArgument args
-            C.toBody funcBody
-        codegenArgument (argType,argName) = do
-            addr <- C.alloca argType
-            C.store addr $
-                ( argType
-                , AST.LocalReference (C.orchidTypeToLLVM argType) argName)
-            C.addVariable (fromName argName) argType addr
-        classCase ret className = do
-            ptrType <- C.classPointerType className
-            let thisArg = (ptrType, C.thisPtrName)
-                mangledFuncName = C.mangleClassMethodName className funcName
-            args <- (thisArg :) <$> mapM convertTypedArg funcArgs
-            C.addFuncDef ret mangledFuncName args $ bodyCodegenClass args
-        bodyCodegenClass args = do
-            let (thisType@(C.TPointer classType),thisName) = head args
-            C.addVariable (fromName thisName) classType $
-                ( thisType
-                , AST.LocalReference (C.orchidTypeToLLVM thisType) thisName)
-            mapM_ codegenArgument $ tail args
-            C.toBody funcBody
+        args <- mapM convertTypedArg funcArgs
+        C.addFuncDef ret funcName args funcBody
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
@@ -331,10 +302,10 @@ instance C.ToBody OT.CompoundStmt () where
 
 instance C.ToBody OT.IfStmt () where
     toBody (OT.IfStmt expr trueBody falseBody) = do
-        trueBlock <- C.addBlock "if.then"
-        contBlock <- C.addBlock "if.cont"
+        trueBlock <- C.addEmptyBlock "if.then"
+        contBlock <- C.addEmptyBlock "if.cont"
         falseBlock <-
-            maybe (pure contBlock) (const $ C.addBlock "if.else") falseBody
+            maybe (pure contBlock) (const $ C.addEmptyBlock "if.else") falseBody
         condOperand <- C.toBody expr
         () <$ C.cbr condOperand trueBlock falseBlock
         tTerminated <- generateCaseBody contBlock trueBlock trueBody
@@ -353,9 +324,9 @@ instance C.ToBody OT.IfStmt () where
 
 instance C.ToBody OT.WhileStmt () where
     toBody (OT.WhileStmt expr body) = do
-        condBlock <- C.addBlock "while.cond"
-        bodyBlock <- C.addBlock "while.body"
-        contBlock <- C.addBlock "while.cont"
+        condBlock <- C.addEmptyBlock "while.cond"
+        bodyBlock <- C.addEmptyBlock "while.body"
+        contBlock <- C.addEmptyBlock "while.cont"
         () <$ C.br condBlock
         C.setBlock condBlock
         v <- C.toBody expr

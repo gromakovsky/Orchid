@@ -14,7 +14,6 @@ module Orchid.Codegen.Module
        , toLLVM
        , execLLVM
        , mkModuleState
-       , getActiveClass
        , addFuncDef
        , addGlobalVariable
        , makeVarPrivate
@@ -41,7 +40,8 @@ import qualified LLVM.General.AST.Global   as G
 import           Serokell.Util             (format')
 
 import           Orchid.Codegen.Body       (ToBody (toBody), createBlocks,
-                                            execBodyGen, lowLevelCast, ret)
+                                            execBodyGen)
+import qualified Orchid.Codegen.Body       as B
 import           Orchid.Codegen.Common     (ClassesMap,
                                             FunctionData (FunctionData),
                                             FunctionsMap,
@@ -50,9 +50,10 @@ import           Orchid.Codegen.Common     (ClassesMap,
                                             cdVariables, classAndParents,
                                             cvInitializer, cvPrivate, cvType,
                                             fdArgTypes, fdRetType,
+                                            lookupClassType,
                                             mangleClassMethodName, mkClassData,
                                             mkClassVariable, orchidTypeToLLVM,
-                                            throwCodegenError)
+                                            thisPtrName, throwCodegenError)
 import           Orchid.Codegen.Constant   (ToConstant (toConstant))
 import           Orchid.Codegen.Type       (Type (..))
 import           Orchid.Error              (CodegenException)
@@ -114,19 +115,15 @@ mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVa
       }
     }
 
--- | Get name of active class (if any).
-getActiveClass :: LLVM (Maybe Text)
-getActiveClass = use msClass
-
 addDefn :: AST.Definition -> LLVM ()
 addDefn d = msModule . mDefinitions <>= [d]
 
 -- | Add function with given return type, name, arguments and suite to
 -- module. This function sets active class for given codegen.
-addFuncDef
-    :: (ToBody a r)
-    => Type -> Text -> [(Type, AST.Name)] -> a -> LLVM ()
-addFuncDef retType funcName args suite = do
+addFuncDef'
+    :: (B.ToBody a r)
+    => Type -> Text -> [(Type, Text)] -> a -> LLVM ()
+addFuncDef' retType funcName args suite = do
     funcs <- use msFunctions
     privFuncs <- use msPrivateFunctions
     classes <- use msClasses
@@ -154,17 +151,45 @@ addFuncDef retType funcName args suite = do
         execBodyGen funcs privFuncs classes vars activeClass (toBody suite) >>=
         createBlocks
     parameters =
-        ([G.Parameter (orchidTypeToLLVM t) n [] | (t,n) <- args], False)
+        ( [G.Parameter (orchidTypeToLLVM t) (convertString n) [] | (t,n) <- args]
+        , False)
 
--- | Outside class this function adds global variable with given type
--- and name to module. Inside class definition it adds given variable
--- as part of class.
+addFuncDef :: B.ToBody a r => Type -> Text -> [(Type, Text)] -> a -> LLVM ()
+addFuncDef retType funcName args suite = do
+    maybe globalCase classCase =<< use msClass
+  where
+    globalCase = addFuncDef' retType funcName args bodyGlobal
+    bodyGlobal = do
+        mapM_ storeArgument args
+        B.toBody suite
+    storeArgument (argType,argName) = do
+        addr <- B.alloca argType
+        B.store addr $
+            ( argType
+            , AST.LocalReference
+                  (orchidTypeToLLVM argType)
+                  (convertString argName))
+        B.addVariable argName argType addr
+    classCase className = do
+        classType <- lookupClassType className
+        let thisArg = (TPointer classType, thisPtrName)
+            mangledFuncName = mangleClassMethodName className funcName
+        addFuncDef' retType mangledFuncName (thisArg : args) $
+            bodyClass classType
+    bodyClass classType = do
+        let thisType = TPointer classType
+        B.addVariable thisPtrName classType $
+            ( thisType
+            , AST.LocalReference (orchidTypeToLLVM thisType) thisPtrName)
+        mapM_ storeArgument args
+        B.toBody suite
+
+-- | This function adds global variable with given type
+-- and name to module.
 addGlobalVariable
     :: (ToConstant a)
     => Type -> Text -> a -> LLVM ()
-addGlobalVariable varType varName varExpr = do
-    value <- toConstant varExpr
-    addToGlobal value
+addGlobalVariable varType varName varExpr = addToGlobal =<< toConstant varExpr
   where
     varName' = convertString varName
     varType' = orchidTypeToLLVM varType
@@ -238,7 +263,7 @@ startClassDef className parent members virtualMethods = do
         msClass .= Just className
     addConstructor variables = do
         let memberTypes = map (view cvType) $ M.elems variables
-        addFuncDef (TClass className memberTypes) className [] $
+        addFuncDef' (TClass className memberTypes) className [] $
             constructorBody variables
     constructorBody variables = do
         let operand =
@@ -249,7 +274,7 @@ startClassDef className parent members virtualMethods = do
         let expectedType =
                 TClass className . map (view cvType) . M.elems $
                 variables
-        ret . Just . snd =<< lowLevelCast operand expectedType
+        B.ret . Just . snd =<< B.lowLevelCast operand expectedType
     isFunctionPointerType (TPointer (TFunction _ _)) = True
     isFunctionPointerType _ = False
     addClassVar (varName,(varType,varInitializer)) = do
