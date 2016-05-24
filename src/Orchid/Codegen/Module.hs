@@ -40,12 +40,12 @@ import qualified LLVM.General.AST.Global   as G
 
 import           Serokell.Util             (format')
 
-import           Orchid.Codegen.Body       (ToCodegen (toCodegen), createBlocks,
-                                            execCodegen, lowLevelCast, ret)
+import           Orchid.Codegen.Body       (ToBody (toBody), createBlocks,
+                                            execBodyGen, lowLevelCast, ret)
 import           Orchid.Codegen.Common     (ClassesMap,
                                             FunctionData (FunctionData),
                                             FunctionsMap,
-                                            HasCodegen (classesLens),
+                                            HasClasses (classesLens),
                                             VariableData (..), VariablesMap,
                                             cdVariables, classAndParents,
                                             cvInitializer, cvPrivate, cvType,
@@ -75,7 +75,7 @@ data ModuleState = ModuleState
 
 $(makeLenses ''ModuleState)
 
-instance HasCodegen ModuleState where
+instance HasClasses ModuleState where
     classesLens = msClasses
 
 -- | LLVM is a Monad intended to be used for module code generation.
@@ -124,7 +124,7 @@ addDefn d = msModule . mDefinitions <>= [d]
 -- | Add function with given return type, name, arguments and suite to
 -- module. This function sets active class for given codegen.
 addFuncDef
-    :: (ToCodegen a r)
+    :: (ToBody a r)
     => Type -> Text -> [(Type, AST.Name)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
     funcs <- use msFunctions
@@ -151,7 +151,7 @@ addFuncDef retType funcName args suite = do
         , fdArgTypes = map fst args
         }
     bodyEither funcs privFuncs classes vars activeClass =
-        execCodegen funcs privFuncs classes vars activeClass (toCodegen suite) >>=
+        execBodyGen funcs privFuncs classes vars activeClass (toBody suite) >>=
         createBlocks
     parameters =
         ([G.Parameter (orchidTypeToLLVM t) n [] | (t,n) <- args], False)

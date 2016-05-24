@@ -30,7 +30,7 @@ module Orchid.Codegen.Common
        , cdVariables
        , cdParent
        , ClassesMap
-       , HasCodegen (..)
+       , HasClasses (..)
        , lookupType
        , classPointerType
        , classAndParents
@@ -172,7 +172,7 @@ mkClassData = ClassData
 
 type ClassesMap = M.Map Text ClassData
 
-class HasCodegen s  where
+class HasClasses s  where
     classesLens :: Lens' s ClassesMap
 
 -------------------------------------------------------------------------------
@@ -188,7 +188,7 @@ classType className =
     map (view cvType) . M.elems . view cdVariables
 
 lookupType
-    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> m Type
 lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
   where
@@ -197,7 +197,7 @@ lookupType t = maybe tryClass return $ M.lookup t predefinedTypes
         maybe throwUnknownType (return . classType t) =<< use (classesLens . at t)
 
 classPointerType
-    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> m Type
 classPointerType t =
     maybe
@@ -208,7 +208,7 @@ classPointerType t =
     throwUnknownType = throwCodegenError $ formatSingle' "unknown type: {}" t
 
 classAndParents
-    :: (MonadState s m, HasCodegen s)
+    :: (MonadState s m, HasClasses s)
     => Maybe Text -> m [Text]
 classAndParents Nothing = pure []
 classAndParents (Just className) = do
@@ -216,12 +216,12 @@ classAndParents (Just className) = do
     (className :) <$> classAndParents p
 
 parentClass
-    :: (MonadState s m, HasCodegen s)
+    :: (MonadState s m, HasClasses s)
     => Text -> m (Maybe Text)
 parentClass className =
     (>>= view cdParent) <$> use (classesLens . at className)
 
 isSubClass
-    :: (MonadState s m, HasCodegen s)
+    :: (MonadState s m, HasClasses s)
     => Text -> Text -> m Bool
 isSubClass subC superC = elem superC <$> classAndParents (Just subC)

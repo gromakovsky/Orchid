@@ -162,7 +162,7 @@ instance C.ToLLVM OT.FuncDef where
             C.addFuncDef ret funcName args $ bodyCodegenGlobal args
         bodyCodegenGlobal args = do
             mapM_ codegenArgument args
-            C.toCodegen funcBody
+            C.toBody funcBody
         codegenArgument (argType,argName) = do
             addr <- C.alloca argType
             C.store addr $
@@ -181,7 +181,7 @@ instance C.ToLLVM OT.FuncDef where
                 ( thisType
                 , AST.LocalReference (C.orchidTypeToLLVM thisType) thisName)
             mapM_ codegenArgument $ tail args
-            C.toCodegen funcBody
+            C.toBody funcBody
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
@@ -222,58 +222,58 @@ instance C.ToLLVM OT.ClassStmt where
             C.makeVarPrivate $ OT.dsVar v
 
 --------------------------------------------------------------------------------
--- C.ToCodegen
+-- C.ToBody
 --------------------------------------------------------------------------------
 
-instance C.ToCodegen OT.Stmt () where
-    toCodegen (OT.SSimple s) = C.toCodegen s
-    toCodegen (OT.SCompound s) = C.toCodegen s
+instance C.ToBody OT.Stmt () where
+    toBody (OT.SSimple s) = C.toBody s
+    toBody (OT.SCompound s) = C.toBody s
 
-instance C.ToCodegen OT.SimpleStmt () where
-    toCodegen (OT.SimpleStmt smallStmts) = mapM_ C.toCodegen smallStmts
+instance C.ToBody OT.SimpleStmt () where
+    toBody (OT.SimpleStmt smallStmts) = mapM_ C.toBody smallStmts
 
-instance C.ToCodegen OT.SmallStmt () where
-    toCodegen (OT.SSDecl d) = C.toCodegen d
-    toCodegen (OT.SSExpr e) = C.toCodegen e
-    toCodegen OT.SSPass = return ()
-    toCodegen (OT.SSFlow fs) = C.toCodegen fs
+instance C.ToBody OT.SmallStmt () where
+    toBody (OT.SSDecl d) = C.toBody d
+    toBody (OT.SSExpr e) = C.toBody e
+    toBody OT.SSPass = return ()
+    toBody (OT.SSFlow fs) = C.toBody fs
 
-instance C.ToCodegen OT.DeclStmt () where
-    toCodegen OT.DeclStmt{..} = do
+instance C.ToBody OT.DeclStmt () where
+    toBody OT.DeclStmt{..} = do
         t <- C.lookupType dsType
         addr <- C.alloca t
-        val <- C.toCodegen dsExpr
+        val <- C.toBody dsExpr
         C.store addr val
         C.addVariable dsVar t addr
 
-instance C.ToCodegen OT.ExprStmt () where
-    toCodegen OT.ExprStmt{..} = do
-        v <- C.toCodegen esExpr
+instance C.ToBody OT.ExprStmt () where
+    toBody OT.ExprStmt{..} = do
+        v <- C.toBody esExpr
         maybe (return ()) (assign v) esVar
       where
         assign val varExpr = do
-            addr <- C.toCodegenPtr varExpr
+            addr <- C.toBodyPtr varExpr
             C.store addr val
 
-instance C.ToCodegen OT.FlowStmt () where
-    toCodegen (OT.FSReturn rs) = C.toCodegen rs
+instance C.ToBody OT.FlowStmt () where
+    toBody (OT.FSReturn rs) = C.toBody rs
 
-instance C.ToCodegen OT.ReturnStmt () where
-    toCodegen (OT.ReturnStmt me) =
-        () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toCodegen) me
+instance C.ToBody OT.ReturnStmt () where
+    toBody (OT.ReturnStmt me) =
+        () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toBody) me
 
-instance C.ToCodegen OT.Expr C.TypedOperand where
-    toCodegen (OT.EUnary OT.UnaryAddr a) = C.toCodegenPtr a
-    toCodegen (OT.EUnary uOp a) = C.toCodegen a >>= convertUnOp uOp
+instance C.ToBody OT.Expr C.TypedOperand where
+    toBody (OT.EUnary OT.UnaryAddr a) = C.toBodyPtr a
+    toBody (OT.EUnary uOp a) = C.toBody a >>= convertUnOp uOp
       where
         convertUnOp OT.UnaryPlus = pure
         convertUnOp OT.UnaryMinus = C.neg
         convertUnOp OT.UnaryNot = C.not
         convertUnOp OT.UnaryDeref = C.load
         convertUnOp OT.UnaryAddr = undefined
-    toCodegen (OT.EBinary bOp a b) = do
-        op1 <- C.toCodegen a
-        op2 <- C.toCodegen b
+    toBody (OT.EBinary bOp a b) = do
+        op1 <- C.toBody a
+        op2 <- C.toBody b
         convertBinOp bOp op1 op2
       where
         convertBinOp OT.BinOr = C.or
@@ -291,51 +291,51 @@ instance C.ToCodegen OT.Expr C.TypedOperand where
         convertBinOp OT.BinMod = C.mod
         convertBinOp OT.BinPower =
             \a' b' ->
-                 do f <- C.toCodegen (OT.AIdentifier "stdPower")
+                 do f <- C.toBody (OT.AIdentifier "stdPower")
                     C.call f [a', b']
-    toCodegen (OT.EAtom a) = C.toCodegen a
+    toBody (OT.EAtom a) = C.toBody a
 
-methodCall :: C.TypedOperand -> OT.Identifier -> [OT.Expr] -> C.Codegen C.TypedOperand
+methodCall :: C.TypedOperand -> OT.Identifier -> [OT.Expr] -> C.BodyGen C.TypedOperand
 methodCall varPtr@(C.TPointer (C.TClass className _),_) methodName exprs = do
     let mangledName = C.mangleClassMethodName className methodName
     fPtr <- C.lookupName mangledName
-    args <- (varPtr :) <$> mapM C.toCodegen exprs
+    args <- (varPtr :) <$> mapM C.toBody exprs
     C.call fPtr args
 methodCall (t,_) _ _ =
     C.throwCodegenError $
     formatSingle' "attempt to call method of something strange (type is {})" t
 
-instance C.ToCodegen OT.AtomExpr C.TypedOperand where
-    toCodegen (OT.AEAtom a) = C.toCodegen a
-    toCodegen (OT.AECall (OT.AEAccess expr methodName) exprs) = do
-        varPtr <- C.toCodegenPtr expr
+instance C.ToBody OT.AtomExpr C.TypedOperand where
+    toBody (OT.AEAtom a) = C.toBody a
+    toBody (OT.AECall (OT.AEAccess expr methodName) exprs) = do
+        varPtr <- C.toBodyPtr expr
         methodCall varPtr methodName exprs
-    toCodegen (OT.AECall f exprs) =
-        join $ C.call <$> C.toCodegen f <*> mapM C.toCodegen exprs
-    toCodegen (OT.AEAccess expr fieldName) =
-        flip C.lookupMember fieldName =<< C.toCodegenPtr expr
+    toBody (OT.AECall f exprs) =
+        join $ C.call <$> C.toBody f <*> mapM C.toBody exprs
+    toBody (OT.AEAccess expr fieldName) =
+        flip C.lookupMember fieldName =<< C.toBodyPtr expr
 
-instance C.ToCodegen OT.Atom C.TypedOperand where
-    toCodegen (OT.AExpr e) = C.toCodegen e
-    toCodegen (OT.AIdentifier v) = C.lookupName v
-    toCodegen (OT.ANumber n) = (C.TInt64,) . AST.ConstantOperand <$> C.toConstant n
-    toCodegen (OT.ABool b) = (C.TBool,) . AST.ConstantOperand <$> C.toConstant b
+instance C.ToBody OT.Atom C.TypedOperand where
+    toBody (OT.AExpr e) = C.toBody e
+    toBody (OT.AIdentifier v) = C.lookupName v
+    toBody (OT.ANumber n) = (C.TInt64,) . AST.ConstantOperand <$> C.toConstant n
+    toBody (OT.ABool b) = (C.TBool,) . AST.ConstantOperand <$> C.toConstant b
 
-instance C.ToCodegen OT.CompoundStmt () where
-    toCodegen (OT.CSIf s) = C.toCodegen s
-    toCodegen (OT.CSWhile s) = C.toCodegen s
-    toCodegen (OT.CSFunc _) =
+instance C.ToBody OT.CompoundStmt () where
+    toBody (OT.CSIf s) = C.toBody s
+    toBody (OT.CSWhile s) = C.toBody s
+    toBody (OT.CSFunc _) =
         C.throwCodegenError "nested functions are not supported"
-    toCodegen (OT.CSClass _) =
+    toBody (OT.CSClass _) =
         C.throwCodegenError "class definition is allowed only as top-level"
 
-instance C.ToCodegen OT.IfStmt () where
-    toCodegen (OT.IfStmt expr trueBody falseBody) = do
+instance C.ToBody OT.IfStmt () where
+    toBody (OT.IfStmt expr trueBody falseBody) = do
         trueBlock <- C.addBlock "if.then"
         contBlock <- C.addBlock "if.cont"
         falseBlock <-
             maybe (pure contBlock) (const $ C.addBlock "if.else") falseBody
-        condOperand <- C.toCodegen expr
+        condOperand <- C.toBody expr
         () <$ C.cbr condOperand trueBlock falseBlock
         tTerminated <- generateCaseBody contBlock trueBlock trueBody
         fTerminated <- maybe (pure False) (generateCaseBody contBlock falseBlock) falseBody
@@ -343,7 +343,7 @@ instance C.ToCodegen OT.IfStmt () where
       where
         generateCaseBody contBlock blockName blockBody = do
             C.setBlock blockName
-            () <$ C.toCodegen blockBody
+            () <$ C.toBody blockBody
             isTerminated <- C.isTerminated
             if isTerminated
                 then return True
@@ -351,47 +351,47 @@ instance C.ToCodegen OT.IfStmt () where
         finalize True = C.removeBlock
         finalize False = C.setBlock
 
-instance C.ToCodegen OT.WhileStmt () where
-    toCodegen (OT.WhileStmt expr body) = do
+instance C.ToBody OT.WhileStmt () where
+    toBody (OT.WhileStmt expr body) = do
         condBlock <- C.addBlock "while.cond"
         bodyBlock <- C.addBlock "while.body"
         contBlock <- C.addBlock "while.cont"
         () <$ C.br condBlock
         C.setBlock condBlock
-        v <- C.toCodegen expr
+        v <- C.toBody expr
         () <$ C.cbr v bodyBlock contBlock
         C.setBlock bodyBlock
-        C.toCodegen body
+        C.toBody body
         isTerminated <- C.isTerminated
         unless isTerminated $ () <$ C.br condBlock
         C.setBlock contBlock
 
-instance C.ToCodegen OT.Suite () where
-    toCodegen = mapM_ C.toCodegen . OT.getSuite
+instance C.ToBody OT.Suite () where
+    toBody = mapM_ C.toBody . OT.getSuite
 
 --------------------------------------------------------------------------------
--- C.ToCodegenPtr
+-- C.ToBodyPtr
 --------------------------------------------------------------------------------
 
-instance C.ToCodegenPtr OT.Expr where
-    toCodegenPtr (OT.EAtom a) = C.toCodegenPtr a
-    toCodegenPtr (OT.EUnary OT.UnaryDeref a) = C.toCodegen a
-    toCodegenPtr _ =
+instance C.ToBodyPtr OT.Expr where
+    toBodyPtr (OT.EAtom a) = C.toBodyPtr a
+    toBodyPtr (OT.EUnary OT.UnaryDeref a) = C.toBody a
+    toBodyPtr _ =
         C.throwCodegenError "can't create lvalue ptr from result of operator"
 
-instance C.ToCodegenPtr OT.AtomExpr where
-    toCodegenPtr (OT.AEAtom a) = C.toCodegenPtr a
-    toCodegenPtr (OT.AECall _ _) =
+instance C.ToBodyPtr OT.AtomExpr where
+    toBodyPtr (OT.AEAtom a) = C.toBodyPtr a
+    toBodyPtr (OT.AECall _ _) =
         C.throwCodegenError
             "can't create lvalue ptr from result of function call"
-    toCodegenPtr (OT.AEAccess expr memberName) = do
-        exprPtr <- C.toCodegenPtr expr
+    toBodyPtr (OT.AEAccess expr memberName) = do
+        exprPtr <- C.toBodyPtr expr
         C.getMemberPtr exprPtr memberName
 
-instance C.ToCodegenPtr OT.Atom where
-    toCodegenPtr (OT.AExpr e) = C.toCodegenPtr e
-    toCodegenPtr (OT.AIdentifier i) = C.getPtr i
-    toCodegenPtr _ = C.throwCodegenError "can't create lvalue ptr from constant"
+instance C.ToBodyPtr OT.Atom where
+    toBodyPtr (OT.AExpr e) = C.toBodyPtr e
+    toBodyPtr (OT.AIdentifier i) = C.getPtr i
+    toBodyPtr _ = C.throwCodegenError "can't create lvalue ptr from constant"
 
 --------------------------------------------------------------------------------
 -- C.ToConstant

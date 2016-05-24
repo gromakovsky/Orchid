@@ -21,7 +21,7 @@ import qualified LLVM.General.AST.Constant as C
 
 import           Serokell.Util             (formatSingle')
 
-import           Orchid.Codegen.Common     (HasCodegen (classesLens),
+import           Orchid.Codegen.Common     (HasClasses (classesLens),
                                             cdVariables, cvInitializer,
                                             throwCodegenError)
 import           Orchid.Codegen.Type       (Type (..))
@@ -41,7 +41,7 @@ constBool = C.Int 1 . boolToInteger
 
 class ToConstant a  where
     toConstant
-        :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+        :: (MonadError CodegenException m, MonadState s m, HasClasses s)
         => a -> m C.Constant
 
 instance ToConstant Int64 where
@@ -52,7 +52,7 @@ instance ToConstant Bool where
 
 -- | Complex constant is produced by constructor.
 complexConstant
-    :: (MonadError CodegenException m, MonadState s m, HasCodegen s)
+    :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> [(Type, C.Constant)] -> m C.Constant
 complexConstant constructorName [] = do
     cls <- use $ classesLens . at constructorName

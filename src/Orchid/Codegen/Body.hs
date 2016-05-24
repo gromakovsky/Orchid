@@ -10,13 +10,11 @@
 module Orchid.Codegen.Body
        (
          -- Codegen
-         Codegen
-       , ToCodegen
-       , toCodegen
-       , ToCodegenPtr
-       , toCodegenPtr
+         BodyGen
+       , ToBody (toBody)
+       , ToBodyPtr (toBodyPtr)
        , createBlocks
-       , execCodegen
+       , execBodyGen
 
          -- Symbol table
        , addVariable
@@ -63,7 +61,6 @@ module Orchid.Codegen.Body
          -- Control Flow
        , br
        , cbr
-       -- , phi
        , ret
        ) where
 
@@ -99,12 +96,10 @@ import qualified Prelude
 import           Serokell.Util                      (format', formatSingle',
                                                      listBuilderJSON)
 
-import           Orchid.Codegen.Common              (ClassData, ClassesMap,
-                                                     FunctionData (FunctionData),
+import           Orchid.Codegen.Common              (ClassData, ClassesMap, FunctionData (FunctionData),
                                                      FunctionsMap,
-                                                     HasCodegen (classesLens),
-                                                     Names, TypedOperand,
-                                                     VariableData (VariableData),
+                                                     HasClasses (classesLens),
+                                                     Names, TypedOperand, VariableData (VariableData),
                                                      VariablesMap, cdVariables,
                                                      classAndParents, cvPrivate,
                                                      cvType, fdArgTypes,
@@ -147,76 +142,75 @@ $(makeLenses ''BlockState)
 type BlocksMap = M.Map AST.Name BlockState
 
 -------------------------------------------------------------------------------
--- Codegen State
+-- Body State
 -------------------------------------------------------------------------------
 
--- | CodegenState represents all the state used by function body
+-- | BodyState represents all the state used by function body
 -- generator.
-data CodegenState = CodegenState
+data BodyState = BodyState
     {
-      -- ^ Name of the active block to append to.
-      _csCurrentBlock     :: AST.Name
+      -- | Name of the active block to append to.
+      _bsCurrentBlock     :: AST.Name
     ,
-      -- ^ Blocks within a function body.
-      _csBlocks           :: BlocksMap
+      -- | Blocks within a function body.
+      _bsBlocks           :: BlocksMap
     ,
-      -- ^ Global functions.
-      _csFunctions        :: FunctionsMap
+      -- | Global functions.
+      _bsFunctions        :: FunctionsMap
     ,
-      -- ^ Private functions.
-      _csPrivateFunctions :: S.Set Text
+      -- | Private functions.
+      _bsPrivateFunctions :: S.Set Text
     ,
-      -- ^ Global classes.
-      _csClasses          :: ClassesMap
+      -- | Global classes.
+      _bsClasses          :: ClassesMap
     ,
-      -- ^ Map from global/local variable name to it's address.
-      _csVariables        :: VariablesMap
+      -- | Map from global/local variable name to it's address.
+      _bsVariables        :: VariablesMap
     ,
-      -- ^ Count of unnamed identifiers.
-      _csCount            :: Word
+      -- | Count of unnamed identifiers.
+      _bsCount            :: Word
     ,
-      -- ^ This map is used to generated unique names for blocks.
-      _csNames            :: Names
-    , _csActiveClass      :: Maybe Text  -- ^ Name of class inside
-                                         -- which this function is
-                                         -- located.
+      -- | This map is used to generated unique names for blocks.
+      _bsNames            :: Names
+      -- | Name of class inside which this function is located
+    , _bsActiveClass      :: Maybe Text
     } deriving (Show)
 
-$(makeLenses ''CodegenState)
+$(makeLenses ''BodyState)
 
-instance HasCodegen CodegenState where
-    classesLens = csClasses
+instance HasClasses BodyState where
+    classesLens = bsClasses
 
 -------------------------------------------------------------------------------
--- Codegen
+-- BodyGen
 -------------------------------------------------------------------------------
 
--- | Codegen is a Monad intended to be used for code generation within
+-- | BodyGen is a Monad intended to be used for body generation of
 -- a single top-level unit like function which is basically a sequence
 -- of basic blocks.
-newtype Codegen a = Codegen
-    { getCodegen :: ExceptT CodegenException (State CodegenState) a
-    } deriving (Functor,Applicative,Monad,MonadState CodegenState,MonadError CodegenException)
+newtype BodyGen a = BodyGen
+    { getBodyGen :: ExceptT CodegenException (State BodyState) a
+    } deriving (Functor,Applicative,Monad,MonadState BodyState,MonadError CodegenException)
 
-class ToCodegen a r | a -> r where
-    toCodegen :: a -> Codegen r
+class ToBody a r | a -> r where
+    toBody :: a -> BodyGen r
 
-instance ToCodegen (Codegen a) a where
-    toCodegen = id
+instance ToBody (BodyGen a) a where
+    toBody = id
 
 -- | Using this class one can create a TypedOperand which is a pointer to lvalue.
-class ToCodegenPtr a where
-    toCodegenPtr :: a -> Codegen TypedOperand
+class ToBodyPtr a where
+    toBodyPtr :: a -> BodyGen TypedOperand
 
 -------------------------------------------------------------------------------
--- Codegen execution
+-- BodyGen execution
 -------------------------------------------------------------------------------
 
 sortBlocks :: [(AST.Name, BlockState)] -> [(AST.Name, BlockState)]
 sortBlocks = sortBy (compare `on` (view bsIdx . snd))
 
-createBlocks :: CodegenState -> Either CodegenException [G.BasicBlock]
-createBlocks = mapM makeBlock . sortBlocks . M.toList . view csBlocks
+createBlocks :: BodyState -> Either CodegenException [G.BasicBlock]
+createBlocks = mapM makeBlock . sortBlocks . M.toList . view bsBlocks
 
 makeBlock :: (AST.Name, BlockState) -> Either CodegenException G.BasicBlock
 makeBlock (l,(BlockState _ s t)) = G.BasicBlock l s <$> makeTerm t
@@ -232,52 +226,60 @@ entryBlockName = "entry"
 emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
-mkCodegen :: FunctionsMap -> S.Set Text -> ClassesMap -> VariablesMap -> Maybe Text -> CodegenState
-mkCodegen functions privateFunctions classes symbols activeClass =
-    execState (runExceptT . getCodegen $ addBlock entryBlockName) $
-    CodegenState
-    { _csCurrentBlock = entryBlockName
-    , _csBlocks = M.empty
-    , _csFunctions = functions
-    , _csPrivateFunctions = privateFunctions
-    , _csClasses = classes
-    , _csVariables = symbols
-    , _csCount = 0
-    , _csNames = M.empty
-    , _csActiveClass = activeClass
+mkBodyState
+    :: FunctionsMap
+    -> S.Set Text
+    -> ClassesMap
+    -> VariablesMap
+    -> Maybe Text
+    -> BodyState
+mkBodyState functions privateFunctions classes symbols activeClass =
+    execState (runExceptT . getBodyGen $ addBlock entryBlockName) $
+    BodyState
+    { _bsCurrentBlock = entryBlockName
+    , _bsBlocks = M.empty
+    , _bsFunctions = functions
+    , _bsPrivateFunctions = privateFunctions
+    , _bsClasses = classes
+    , _bsVariables = symbols
+    , _bsCount = 0
+    , _bsNames = M.empty
+    , _bsActiveClass = activeClass
     }
 
-execCodegen :: FunctionsMap
-            -> S.Set Text
-            -> ClassesMap
-            -> VariablesMap
-            -> Maybe Text
-            -> Codegen a
-            -> Either CodegenException CodegenState
-execCodegen functions privateFunctions classes symbols activeClass =
-    f . flip runState initial . runExceptT . getCodegen
+execBodyGen
+    :: FunctionsMap
+    -> S.Set Text
+    -> ClassesMap
+    -> VariablesMap
+    -> Maybe Text
+    -> BodyGen a
+    -> Either CodegenException BodyState
+execBodyGen functions privateFunctions classes symbols activeClass =
+    f . flip runState initial . runExceptT . getBodyGen
   where
-    initial = mkCodegen functions privateFunctions classes symbols activeClass
+    initial =
+        mkBodyState functions privateFunctions classes symbols activeClass
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
 -------------------------------------------------------------------------------
--- Basic codegen operations
+-- Basic BodyGen operations
 -------------------------------------------------------------------------------
 
-genUnnamed :: Codegen AST.Name
+genUnnamed :: BodyGen AST.Name
 genUnnamed = do
-    csCount += 1
-    AST.UnName <$> use csCount
+    bsCount += 1
+    AST.UnName <$> use bsCount
 
-instr :: Type -> AST.Instruction -> Codegen TypedOperand
+instr :: Type -> AST.Instruction -> BodyGen TypedOperand
 instr retType ins = do
     name <- genUnnamed
     currentBlock <- getCurrentBlock
     setCurrentBlock $ currentBlock & bsInstructions <>~ [name AST.:= ins]
     return $ (retType, AST.LocalReference (orchidTypeToLLVM retType) name)
 
-terminator :: Named AST.Terminator -> Codegen (AST.Named AST.Terminator)
+terminator :: Named AST.Terminator -> BodyGen (AST.Named AST.Terminator)
 terminator trm =
     trm <$
     do currentBlock <- getCurrentBlock
@@ -285,91 +287,91 @@ terminator trm =
            setCurrentBlock $ currentBlock & bsTerm .~ Just trm
 
 -------------------------------------------------------------------------------
--- Codegen blocks
+-- BodyGen blocks
 -------------------------------------------------------------------------------
 
-addBlock :: Text -> Codegen AST.Name
+addBlock :: Text -> BodyGen AST.Name
 addBlock blockName = do
-    ix <- fromIntegral . M.size <$> use csBlocks
-    names <- use csNames
+    ix <- fromIntegral . M.size <$> use bsBlocks
+    names <- use bsNames
     let new = emptyBlock ix
         (qname,supply) = uniqueName blockName names
         astName = convertString qname
-    csBlocks %= M.insert astName new
-    csNames .= supply
+    bsBlocks %= M.insert astName new
+    bsNames .= supply
     return astName
 
-setBlock :: AST.Name -> Codegen ()
-setBlock = (csCurrentBlock .=)
+setBlock :: AST.Name -> BodyGen ()
+setBlock = (bsCurrentBlock .=)
 
 -- | Remove block with given name if it exists. Caller is reponsible
 -- for ensuring that it is not referenced.
-removeBlock :: AST.Name -> Codegen ()
-removeBlock name = csBlocks %= M.delete name
+removeBlock :: AST.Name -> BodyGen ()
+removeBlock name = bsBlocks %= M.delete name
 
-getCurrentBlockName :: Codegen AST.Name
-getCurrentBlockName = use csCurrentBlock
+getCurrentBlockName :: BodyGen AST.Name
+getCurrentBlockName = use bsCurrentBlock
 
-getCurrentBlock :: Codegen BlockState
+getCurrentBlock :: BodyGen BlockState
 getCurrentBlock = do
-    v <- M.lookup <$> use csCurrentBlock <*> use csBlocks
+    v <- M.lookup <$> use bsCurrentBlock <*> use bsBlocks
     maybe
         (throwCodegenError . formatSingle' "no such block: {}" =<<
-         use csCurrentBlock)
+         use bsCurrentBlock)
         return
         v
 
-isTerminated :: Codegen Bool
+isTerminated :: BodyGen Bool
 isTerminated = isJust . view bsTerm <$> getCurrentBlock
 
-setCurrentBlock :: BlockState -> Codegen ()
+setCurrentBlock :: BlockState -> BodyGen ()
 setCurrentBlock bs = do
-    name <- use csCurrentBlock
-    csBlocks %= M.insert name bs
+    name <- use bsCurrentBlock
+    bsBlocks %= M.insert name bs
 
 -------------------------------------------------------------------------------
 -- Variables, functions and classes
 -------------------------------------------------------------------------------
 
-codegenActiveClassData :: Codegen (Maybe ClassData)
+codegenActiveClassData :: BodyGen (Maybe ClassData)
 codegenActiveClassData =
-    maybe (return Nothing) (\n -> use $ csClasses . at n) =<< use csActiveClass
+    maybe (return Nothing) (\n -> use $ bsClasses . at n) =<< use bsActiveClass
 
 -- | Add variable with given name, type and address.
-addVariable :: Text -> Type -> TypedOperand -> Codegen ()
+addVariable :: Text -> Type -> TypedOperand -> BodyGen ()
 addVariable varName varType typedVarAddr@(_,varAddr) = do
     checkTypes "addVariable" [TPointer varType] [typedVarAddr]
-    exists <- M.member varName <$> use csVariables
+    exists <- M.member varName <$> use bsVariables
     when exists $ throwCodegenError $
         formatSingle' "variable name is already in scope: {}" varName
-    csVariables . at varName .= Just varData
+    bsVariables . at varName .= Just varData
   where
     varData = VariableData varType varAddr
 
-reportNotInScope :: Text -> Codegen a
+reportNotInScope :: Text -> BodyGen a
 reportNotInScope =
     throwCodegenError . formatSingle' "not in scope: {}"
 
-reportClassNotFound :: Text -> Codegen a
+reportClassNotFound :: Text -> BodyGen a
 reportClassNotFound =
     throwCodegenError . formatSingle' "no such class {}"
 
 -- | Get value of variable with given name. Functions are treated as
 -- variable too, but function's address is not dereferenced.
-lookupName :: Text -> Codegen TypedOperand
+lookupName :: Text -> BodyGen TypedOperand
 lookupName var = do
     f <- constructF True var
-    classes <- classAndParents =<< use csActiveClass
+    classes <- classAndParents =<< use bsActiveClass
     methods <- mapM constructMethod classes
     v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
     maybe (reportNotInScope var) return $
         foldr (<|>) empty (v : methods ++ [f])
   where
     constructF considerPrivate name = do
-        isPrivate <- S.member name <$> use csPrivateFunctions
+        isPrivate <- S.member name <$> use bsPrivateFunctions
         if isPrivate && considerPrivate
             then return Nothing
-            else fmap (constructFDo name) <$> use (csFunctions . at name)
+            else fmap (constructFDo name) <$> use (bsFunctions . at name)
     constructFDo name fd@FunctionData{..} =
         ( functionDataToType fd
         , AST.ConstantOperand . C.GlobalReference (orchidTypeToLLVM fdRetType) $
@@ -377,18 +379,18 @@ lookupName var = do
     constructMethod className =
         constructF False $ mangleClassMethodName className var
 
-lookupMember :: TypedOperand -> Text -> Codegen TypedOperand
+lookupMember :: TypedOperand -> Text -> BodyGen TypedOperand
 lookupMember operand memberName = getMemberPtr operand memberName >>= load
 
 -- | Get address of variable with given name. Functions are not
 -- considered by this function.
-getPtr :: Text -> Codegen TypedOperand
+getPtr :: Text -> BodyGen TypedOperand
 getPtr varName =
     maybe (reportNotInScope varName) return =<< getPtrMaybe varName
 
-getMemberPtr :: TypedOperand -> Text -> Codegen TypedOperand
+getMemberPtr :: TypedOperand -> Text -> BodyGen TypedOperand
 getMemberPtr op@(TPointer (TClass className _),_) varName = do
-    classDataMaybe <- use (csClasses . at className)
+    classDataMaybe <- use (bsClasses . at className)
     maybe
         (reportClassNotFound className)
         (\cd ->
@@ -405,7 +407,7 @@ getMemberPtrMaybe :: Bool
                   -> TypedOperand
                   -> Text
                   -> ClassData
-                  -> Codegen (Maybe TypedOperand)
+                  -> BodyGen (Maybe TypedOperand)
 getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd =
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
@@ -423,15 +425,15 @@ getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd 
                     []
 getMemberPtrMaybe _ _ _ _ = pure Nothing
 
-getPtrMaybe :: Text -> Codegen (Maybe TypedOperand)
+getPtrMaybe :: Text -> BodyGen (Maybe TypedOperand)
 getPtrMaybe varName =
     (<|>) <$>
     use
-        (csVariables .
+        (bsVariables .
          at varName . to (fmap (first TPointer . variableDataToTypedOperand))) <*>
     getThisMemberPtr varName
 
-getThisMemberPtr :: Text -> Codegen (Maybe TypedOperand)
+getThisMemberPtr :: Text -> BodyGen (Maybe TypedOperand)
 getThisMemberPtr varName
   | varName == thisPtrName = pure Nothing
   | otherwise = do
@@ -446,7 +448,7 @@ getThisMemberPtr varName
 -- Unary operations
 -------------------------------------------------------------------------------
 
-neg, not :: TypedOperand -> Codegen TypedOperand
+neg, not :: TypedOperand -> BodyGen TypedOperand
 neg = sub $ (TInt64, AST.ConstantOperand $ constInt64 0)
 not = xor $ (TBool, AST.ConstantOperand $ constBool True)
 
@@ -454,7 +456,7 @@ not = xor $ (TBool, AST.ConstantOperand $ constBool True)
 -- Binary operations
 -------------------------------------------------------------------------------
 
-checkTypes :: Text -> [Type] -> [TypedOperand] -> Codegen ()
+checkTypes :: Text -> [Type] -> [TypedOperand] -> BodyGen ()
 checkTypes funcName expectedTypes args
   | length expectedTypes /= length args =
       throwCodegenError $
@@ -474,7 +476,7 @@ checkTypes funcName expectedTypes args
         format' ", expected types: {}, received types: {}"
             (listBuilderJSON expectedTypes, listBuilderJSON $ map fst args)
 
-or, and, xor :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+or, and, xor :: TypedOperand -> TypedOperand -> BodyGen TypedOperand
 or op1@(_,a) op2@(_,b) =
     checkTypes "or" [TBool, TBool] [op1, op2] >> instr TBool (AST.Or a b [])
 and op1@(_,a) op2@(_,b) =
@@ -482,12 +484,12 @@ and op1@(_,a) op2@(_,b) =
 xor op1@(_,a) op2@(_,b) =
     checkTypes "xor" [TBool, TBool] [op1, op2] >> instr TBool (AST.Xor a b [])
 
-cmp :: IP.IntegerPredicate -> TypedOperand -> TypedOperand -> Codegen TypedOperand
+cmp :: IP.IntegerPredicate -> TypedOperand -> TypedOperand -> BodyGen TypedOperand
 cmp cond op1@(_,a) op2@(_,b) =
     checkTypes "cmp" [TInt64, TInt64] [op1, op2] >>
     instr TBool (AST.ICmp cond a b [])
 
-lessThan, greaterThan, equal, lessOrEqual, notEqual, greaterOrEqual :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+lessThan, greaterThan, equal, lessOrEqual, notEqual, greaterOrEqual :: TypedOperand -> TypedOperand -> BodyGen TypedOperand
 lessThan = cmp IP.SLT
 greaterThan = cmp IP.SGT
 equal = cmp IP.EQ
@@ -495,7 +497,7 @@ lessOrEqual = cmp IP.SLE
 notEqual = cmp IP.NE
 greaterOrEqual = cmp IP.SGE
 
-add, sub, mul, div, mod :: TypedOperand -> TypedOperand -> Codegen TypedOperand
+add, sub, mul, div, mod :: TypedOperand -> TypedOperand -> BodyGen TypedOperand
 add op1@(_,a) op2@(_,b) =
     checkTypes "add" [TInt64, TInt64] [op1, op2] >>
     instr TInt64 (AST.Add False False a b [])
@@ -518,10 +520,10 @@ mod op1@(_,a) op2@(_,b) =
 toArgs :: [TypedOperand] -> [(AST.Operand, [A.ParameterAttribute])]
 toArgs = map (\(_, x) -> (x, []))
 
-lowLevelCast :: AST.Operand -> Type -> Codegen TypedOperand
+lowLevelCast :: AST.Operand -> Type -> BodyGen TypedOperand
 lowLevelCast op newType = instr newType $ AST.BitCast op (orchidTypeToLLVM newType) []
 
-cast :: TypedOperand -> Type -> Codegen TypedOperand
+cast :: TypedOperand -> Type -> BodyGen TypedOperand
 cast (t1@(TPointer (TClass origClass _)),origOperand) newType@(TPointer (TClass newClass _)) = do
     isSC <- isSubClass origClass newClass
     unless isSC $
@@ -533,15 +535,15 @@ cast (t1,origOperand) t2
   | otherwise =
       throwCodegenError $ format' "cast from {} to {} is prohibited" (t1, t2)
 
-castArgs :: [TypedOperand] -> [Type] -> Codegen [TypedOperand]
+castArgs :: [TypedOperand] -> [Type] -> BodyGen [TypedOperand]
 castArgs args expectedTypes
   | length args /= length expectedTypes = pure args
   | otherwise = mapM castArgsDo $ zip args expectedTypes
 
-castArgsDo :: (TypedOperand, Type) -> Codegen TypedOperand
+castArgsDo :: (TypedOperand, Type) -> BodyGen TypedOperand
 castArgsDo (operand, t) = cast operand t `catchError` const (pure operand)
 
-call :: TypedOperand -> [TypedOperand] -> Codegen TypedOperand
+call :: TypedOperand -> [TypedOperand] -> BodyGen TypedOperand
 call (fnType,fnOperand) args =
     maybe
         (throwCodegenError "attempt to call something that is not a function")
@@ -549,7 +551,7 @@ call (fnType,fnOperand) args =
     typeToFunctionData fnType
   where
     callDo FunctionData{..} = do
-        activeClassName <- use csActiveClass
+        activeClassName <- use bsActiveClass
         args' <-
             maybePrependThis activeClassName fdArgTypes >>=
             flip castArgs fdArgTypes
@@ -571,10 +573,10 @@ call (fnType,fnOperand) args =
     unwrapClassPtr (TPointer (TClass n _)) = Just n
     unwrapClassPtr _ = Nothing
 
-alloca :: Type -> Codegen TypedOperand
+alloca :: Type -> BodyGen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []
 
-store :: TypedOperand -> TypedOperand -> Codegen ()
+store :: TypedOperand -> TypedOperand -> BodyGen ()
 store (ptrType,ptr) (valType,val) = do
     unless (ptrType == TPointer valType) $
         throwCodegenError $
@@ -583,7 +585,7 @@ store (ptrType,ptr) (valType,val) = do
             (valType, ptrType)
     () <$ instr TVoid (AST.Store False ptr val Nothing 0 [])
 
-load :: TypedOperand -> Codegen TypedOperand
+load :: TypedOperand -> BodyGen TypedOperand
 load (TPointer t, ptr) = instr t $ AST.Load False ptr Nothing 0 []
 load (t,_) =
     throwCodegenError $
@@ -593,13 +595,13 @@ load (t,_) =
 -- Control Flow
 -------------------------------------------------------------------------------
 
-br :: AST.Name -> Codegen (AST.Named AST.Terminator)
+br :: AST.Name -> BodyGen (AST.Named AST.Terminator)
 br = terminator . AST.Do . flip AST.Br []
 
-cbr :: TypedOperand -> AST.Name -> AST.Name -> Codegen (AST.Named AST.Terminator)
+cbr :: TypedOperand -> AST.Name -> AST.Name -> BodyGen (AST.Named AST.Terminator)
 cbr c@(_,cond) tr fl =
     checkTypes "cbr" [TBool] [c] >>
     (terminator $ AST.Do $ AST.CondBr cond tr fl [])
 
-ret :: Maybe AST.Operand -> Codegen (AST.Named AST.Terminator)
+ret :: Maybe AST.Operand -> BodyGen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
