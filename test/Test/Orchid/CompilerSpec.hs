@@ -27,6 +27,7 @@ spec =
                 checkOutput "factorial_io.orc" factorial_ioInput "6\n" "720\n"
                 checkOutput "class.orc" classInput "" "42\n"
                 checkOutput "error.orc" errorInput "" "Error occurred\n"
+                checkOutput "global_var.orc" global_varInput "" "1\n2\n"
                 checkOutput "rectangle.orc" rectangleInput "" "2\n1\n"
                 checkOutput "private_var_inside.orc" private_var_insideInput "" "42\n"
                 checkOutput "class_method_inside.orc" class_method_insideInput "" "2\n1\n"

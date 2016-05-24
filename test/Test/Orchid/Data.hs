@@ -6,6 +6,7 @@ module Test.Orchid.Data
        ( factorial_ioInput
        , classInput
        , errorInput
+       , global_varInput
        , type_errorInput
        , rectangleInput
        , private_var_insideInput
@@ -37,6 +38,11 @@ errorInput
     :: IsString s
     => s
 errorInput = $(embedStringFile $ testPath "error.orc")
+
+global_varInput
+    :: IsString s
+    => s
+global_varInput = $(embedStringFile $ testPath "global_var.orc")
 
 type_errorInput
     :: IsString s
