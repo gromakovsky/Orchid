@@ -15,7 +15,6 @@ import           Control.Lens              (at, use, view)
 import           Control.Monad.Except      (MonadError)
 import           Control.Monad.State       (MonadState)
 import           Data.Int                  (Int32, Int64)
-import qualified Data.Map                  as M
 import           Data.Text                 (Text)
 import qualified LLVM.General.AST          as AST
 import qualified LLVM.General.AST.Constant as C
@@ -68,6 +67,5 @@ complexConstant constructorName [] = do
         formatSingle' "constructor not found: {}" constructorName
     onSuccess =
         return .
-        C.Struct Nothing False .
-        map (view cvInitializer) . M.elems . view cdVariables
+        C.Struct Nothing False . map (view cvInitializer) . view cdVariables
 complexConstant _ _ = throwCodegenError "constructors with arguments are not supported"

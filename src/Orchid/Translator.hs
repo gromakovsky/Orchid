@@ -156,41 +156,39 @@ instance C.ToLLVM OT.FuncDef where
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
-        join $ C.startClassDef clsName clsParent <$> members <*> virtualMethods
+        join $ C.startClassDef clsName clsParent <$> members -- <*> virtualMethods
         C.toLLVM clsBody
         C.finishClassDef
       where
         members =
             catMaybes <$>
-            (mapM payloadToMember . map OT.csPayload . OT.getClassSuite $
+            (mapM classStmtToMember . OT.getClassSuite $
              clsBody)
-        payloadToMember (Left _) = pure Nothing
-        payloadToMember (Right OT.DeclStmt{..}) =
-            Just . (dsVar, ) <$>
-            ((,) <$> C.lookupType (dsType) <*> C.toConstant dsExpr)
-        virtualMethods =
-            catMaybes <$>
-            (mapM payloadToVirtualFunction .
-             map OT.csPayload . OT.getClassSuite $
-             clsBody)
-        payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
-            Just . (funcName, ) <$>
-            do args <- mapM (fmap fst . convertTypedArg) funcArgs
-               ret <- maybe (pure C.TVoid) C.lookupType funcRet
-               return $ C.TFunction ret args
-        payloadToVirtualFunction _ = pure Nothing
+        classStmtToMember (OT.ClassStmt _ (Left _)) = pure Nothing
+        classStmtToMember (OT.ClassStmt access (Right OT.DeclStmt{..})) =
+            Just <$> (C.mkClassVariable dsVar <$> C.lookupType dsType <*>
+            C.toConstant dsExpr <*>
+            pure (access == OT.AMPrivate))
+        -- virtualMethods =
+        --     catMaybes <$>
+        --     (mapM payloadToVirtualFunction .
+        --      map OT.csPayload . OT.getClassSuite $
+        --      clsBody)
+        -- payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
+        --     Just . (funcName, ) <$>
+        --     do args <- mapM (fmap fst . convertTypedArg) funcArgs
+        --        ret <- maybe (pure C.TVoid) C.lookupType funcRet
+        --        return $ C.TFunction ret args
+        -- payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
 
 instance C.ToLLVM OT.ClassStmt where
-    toLLVM OT.ClassStmt{csAccess = access,csPayload = Left (_, f)} = do
+    toLLVM OT.ClassStmt{csAccess = access,csPayload = Left (_,f)} = do
         C.toLLVM f
-        when (access == OT.AMPrivate) $
-            C.makeFuncPrivate $ OT.funcName f
-    toLLVM OT.ClassStmt{csAccess = access,csPayload = Right v} = do
-        when (access == OT.AMPrivate) $
-            C.makeVarPrivate $ OT.dsVar v
+        when (access == OT.AMPrivate) $ C.makeFuncPrivate $ OT.funcName f
+    toLLVM OT.ClassStmt{csAccess = _,csPayload = Right _} = return ()
 
 --------------------------------------------------------------------------------
 -- C.ToBody

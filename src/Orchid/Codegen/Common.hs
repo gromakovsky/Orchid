@@ -22,6 +22,7 @@ module Orchid.Codegen.Common
        , FunctionsMap
        , ClassVariable
        , mkClassVariable
+       , cvName
        , cvType
        , cvInitializer
        , cvPrivate
@@ -151,28 +152,29 @@ typeToFunctionData _ = Nothing
 type FunctionsMap = M.Map Text FunctionData
 
 -- | ClassVariable type represents variable defined inside class
--- body. It has a type, initial value (used for construction) and
--- access modifier.
+-- body. It has a names, type, initial value (used for construction)
+-- and access modifier.
 data ClassVariable = ClassVariable
-    { _cvType        :: Type
+    { _cvName        :: Text
+    , _cvType        :: Type
     , _cvInitializer :: C.Constant
     , _cvPrivate     :: Bool
     } deriving (Show)
 
 $(makeLenses ''ClassVariable)
 
-mkClassVariable :: Type -> C.Constant -> Bool -> ClassVariable
+mkClassVariable :: Text -> Type -> C.Constant -> Bool -> ClassVariable
 mkClassVariable = ClassVariable
 
 -- | ClassData stores all data associated with class.
 data ClassData = ClassData
-    { _cdVariables :: M.Map Text ClassVariable
+    { _cdVariables :: [ClassVariable]
     , _cdParent    :: Maybe Text
     } deriving (Show)
 
 $(makeLenses ''ClassData)
 
-mkClassData :: M.Map Text ClassVariable -> Maybe Text -> ClassData
+mkClassData :: [ClassVariable] -> Maybe Text -> ClassData
 mkClassData = ClassData
 
 type ClassesMap = M.Map Text ClassData
@@ -190,9 +192,7 @@ predefinedTypes :: M.Map Text Type
 predefinedTypes = M.fromList [("int64", TInt64), ("bool", TBool)]
 
 classType :: Text -> ClassData -> Type
-classType className =
-    TClass className .
-    map (view cvType) . M.elems . view cdVariables
+classType className = TClass className . map (view cvType) . view cdVariables
 
 throwUnknownType :: (MonadError CodegenException m) => Text -> m a
 throwUnknownType = throwCodegenError . formatSingle' "unknown type: {}"

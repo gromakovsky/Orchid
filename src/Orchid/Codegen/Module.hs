@@ -16,7 +16,6 @@ module Orchid.Codegen.Module
        , mkModuleState
        , addFuncDef
        , addGlobalVariable
-       , makeVarPrivate
        , makeFuncPrivate
        , startClassDef
        , finishClassDef
@@ -29,7 +28,9 @@ import           Control.Monad             (when)
 import           Control.Monad.Except      (ExceptT, MonadError (throwError),
                                             runExceptT)
 import           Control.Monad.State       (MonadState, State, runState)
+import           Data.List                 (find)
 import qualified Data.Map                  as M
+import           Data.Maybe                (isJust)
 import qualified Data.Set                  as S
 import           Data.String.Conversions   (convertString)
 import           Data.Text                 (Text)
@@ -42,18 +43,18 @@ import           Serokell.Util             (format')
 import           Orchid.Codegen.Body       (ToBody (toBody), createBlocks,
                                             execBodyGen)
 import qualified Orchid.Codegen.Body       as B
-import           Orchid.Codegen.Common     (ClassesMap,
+import           Orchid.Codegen.Common     (ClassVariable, ClassesMap,
                                             FunctionData (FunctionData),
                                             FunctionsMap,
                                             HasClasses (classesLens),
                                             VariableData (..), VariablesMap,
                                             cdVariables, classAndParents,
-                                            cvInitializer, cvPrivate, cvType,
+                                            cvInitializer, cvName, cvType,
                                             fdArgTypes, fdRetType,
                                             lookupClassType,
                                             mangleClassMethodName, mkClassData,
-                                            mkClassVariable, orchidTypeToLLVM,
-                                            thisPtrName, throwCodegenError)
+                                            orchidTypeToLLVM, thisPtrName,
+                                            throwCodegenError)
 import           Orchid.Codegen.Constant   (ToConstant (toConstant))
 import           Orchid.Codegen.Type       (Type (..))
 import           Orchid.Error              (CodegenException)
@@ -208,17 +209,6 @@ addGlobalVariable varType varName varExpr = addToGlobal =<< toConstant varExpr
             }
         msVariables . at varName .= Just varData
 
--- | Make variable in active class private.
-makeVarPrivate :: Text -> LLVM ()
-makeVarPrivate varName =
-    maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
-  where
-    outsideClassMsg =
-        "internal error: attempt to make variable private outside class"
-    impl clsName =
-        msClasses . at clsName . _Just . cdVariables . at varName %=
-        fmap (set cvPrivate True)
-
 -- | Make function in active class private.
 makeFuncPrivate :: Text -> LLVM ()
 makeFuncPrivate funcName =
@@ -231,64 +221,57 @@ makeFuncPrivate funcName =
 
 startClassDef :: Text
               -> Maybe Text
-              -> [(Text, (Type, C.Constant))]
-              -> [(Text, Type)]
+              -> [ClassVariable]
               -> LLVM ()
-startClassDef className parent members virtualMethods = do
+startClassDef className parent members = do
     cls <- use msClass
-    maybe
-        addNewCls
-        (const $
-         throwCodegenError "class definition can't appear inside another class")
-        cls
+    when (isJust cls) $
+        throwCodegenError "class definition can't appear inside another class"
+    msClasses %= M.insert className (mkClassData [] parent)
+    parents <- tail <$> classAndParents (Just className)
+    parentVars <-
+        mapM
+            (\n ->
+                  use $ msClasses . at n . _Just . cdVariables)
+            parents
+    msClasses . at className %= fmap (set cdVariables (concat parentVars))
+    mapM_ addClassVar members
+    use variablesLens >>= addConstructor
+    msClass .= Just className
   where
-    newClass parentVars = mkClassData (M.unions parentVars) parent
-    convertVirtualMethod (methodName,methodType) =
-        let t = TPointer methodType
-            mangledName = mangleClassMethodName className methodName
-        in ( methodName
-           , (t, C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName)))
-    members' = map convertVirtualMethod virtualMethods ++ members
-    addNewCls = do
-        msClasses %= M.insert className (newClass [])
-        parents <- tail <$> classAndParents (Just className)
-        parentVars <-
-            mapM
-                (\n ->
-                      use $ msClasses . at n . _Just . cdVariables)
-                parents
-        msClasses . at className .= Just (newClass parentVars)
-        mapM_ addClassVar members'
-        use (msClasses . at className . _Just . cdVariables) >>= addConstructor
-        msClass .= Just className
+    -- convertVirtualMethod (methodName,methodType) =
+    --     let t = TPointer methodType
+    --         mangledName = mangleClassMethodName className methodName
+    --     in ( methodName
+    --        , (t, C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName)))
+    -- members' = map convertVirtualMethod virtualMethods ++ members
+    variablesLens = msClasses . at className . _Just . cdVariables
     addConstructor variables = do
-        let memberTypes = map (view cvType) $ M.elems variables
+        let memberTypes = map (view cvType) variables
         addFuncDef' (TClass className memberTypes) className [] $
             constructorBody variables
     constructorBody variables = do
         let operand =
                 AST.ConstantOperand . C.Struct Nothing False .
-                map (view cvInitializer) .
-                M.elems $
+                map (view cvInitializer) $
                 variables
-        let expectedType =
-                TClass className . map (view cvType) . M.elems $
-                variables
-        B.ret . Just . snd =<< B.lowLevelCast operand expectedType
-    isFunctionPointerType (TPointer (TFunction _ _)) = True
-    isFunctionPointerType _ = False
-    addClassVar (varName,(varType,varInitializer)) = do
+            expectedType = TClass className . map (view cvType) $ variables
+        -- B.ret . Just . snd =<< B.lowLevelCast operand expectedType
+        B.ret .
+            Just .
+            snd $
+            (expectedType, operand)
+    -- isFunctionPointerType (TPointer (TFunction _ _)) = True
+    -- isFunctionPointerType _ = False
+    addClassVar classVar = do
         alreadyAdded <-
-            M.member varName <$>
-            use (msClasses . at className . _Just . cdVariables)
-        when (alreadyAdded && Prelude.not (isFunctionPointerType varType)) $
-            throwCodegenError $
+            isJust . find ((== classVar ^. cvName) . view cvName) <$>
+            use variablesLens
+        when alreadyAdded $ throwCodegenError $
             format'
                 "variable {} is defined in class {} more than once"
-                (varName, className)
-        msClasses . at className . _Just . cdVariables . at varName .=
-            Just (clsVarData varType varInitializer)
-    clsVarData t value = mkClassVariable t value False
+                (classVar ^. cvName, className)
+        msClasses . at className . _Just . cdVariables <>= [classVar]
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass

@@ -76,7 +76,7 @@ import           Control.Monad.Except               (ExceptT,
 import           Control.Monad.State                (MonadState, State,
                                                      execState, runState)
 import           Data.Function                      (on)
-import           Data.List                          (sortBy)
+import           Data.List                          (findIndex, sortBy)
 import qualified Data.Map                           as M
 import           Data.Maybe                         (isJust)
 import qualified Data.Set                           as S
@@ -101,9 +101,9 @@ import           Orchid.Codegen.Common              (ClassData, ClassesMap, Func
                                                      HasClasses (classesLens),
                                                      Names, TypedOperand, VariableData (VariableData),
                                                      VariablesMap, cdVariables,
-                                                     classAndParents, cvPrivate,
-                                                     cvType, fdArgTypes,
-                                                     fdRetType,
+                                                     classAndParents, cvName,
+                                                     cvPrivate, cvType,
+                                                     fdArgTypes, fdRetType,
                                                      functionDataToType,
                                                      isSubClass,
                                                      mangleClassMethodName,
@@ -452,10 +452,10 @@ getMemberPtrMaybe :: Bool
                   -> ClassData
                   -> BodyGen (Maybe TypedOperand)
 getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd =
-    case M.lookupIndex varName $ cd ^. cdVariables of
+    case findIndex ((== varName) . view cvName) $ cd ^. cdVariables of
         Nothing -> pure Nothing
         Just i -> do
-            let (_, classVariable) = M.elemAt i (cd ^. cdVariables)
+            let classVariable = (cd ^. cdVariables) !! i
             when (considerPrivate && classVariable ^. cvPrivate) $
                 throwCodegenError $
                 formatSingle' "variable {} is private" varName
