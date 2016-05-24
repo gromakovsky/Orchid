@@ -172,8 +172,9 @@ data BodyState = BodyState
     ,
       -- | This map is used to generated unique names for blocks.
       _bsNames            :: Names
+    ,
       -- | Name of class inside which this function is located
-    , _bsActiveClass      :: Maybe Text
+      _bsActiveClass      :: Maybe Text
     } deriving (Show)
 
 $(makeLenses ''BodyState)
