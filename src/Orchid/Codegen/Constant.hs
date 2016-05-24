@@ -7,7 +7,7 @@ module Orchid.Codegen.Constant
        ( constInt64
        , constInt32
        , constBool
-       , ToConstant (toConstant)
+       , ToConstant (toConstant, toConstantOperand)
        , complexConstant
        ) where
 
@@ -17,6 +17,7 @@ import           Control.Monad.State       (MonadState)
 import           Data.Int                  (Int32, Int64)
 import qualified Data.Map                  as M
 import           Data.Text                 (Text)
+import qualified LLVM.General.AST          as AST
 import qualified LLVM.General.AST.Constant as C
 
 import           Serokell.Util             (formatSingle')
@@ -43,6 +44,10 @@ class ToConstant a  where
     toConstant
         :: (MonadError CodegenException m, MonadState s m, HasClasses s)
         => a -> m C.Constant
+    toConstantOperand
+        :: (MonadError CodegenException m, MonadState s m, HasClasses s)
+        => a -> m AST.Operand
+    toConstantOperand = fmap AST.ConstantOperand . toConstant
 
 instance ToConstant Int64 where
     toConstant = pure . constInt64

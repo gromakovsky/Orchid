@@ -26,10 +26,10 @@ module Orchid.Codegen.Body
 
          -- Symbol table
        , addVariable
-       , lookupName
-       , lookupMember
-       , getPtr
-       , getMemberPtr
+       , nameToValue
+       , memberNameToValue
+       , nameToPtr
+       , memberNameToPtr
 
          -- Unary operators
        , neg
@@ -54,6 +54,7 @@ module Orchid.Codegen.Body
          -- Effects
        , lowLevelCast
        , call
+       , methodCall
        , alloca
        , store
        , load
@@ -67,8 +68,8 @@ module Orchid.Codegen.Body
 import           Control.Applicative                (empty, (<|>))
 import           Control.Lens                       (at, makeLenses, to, use,
                                                      view, (%=), (+=), (.=),
-                                                     (.~), (<>~), (^.), _2)
-import           Control.Monad                      (unless, when, (>=>))
+                                                     (.~), (<>~), (^.))
+import           Control.Monad                      (unless, when, (<=<), (>=>))
 import           Control.Monad.Except               (ExceptT,
                                                      MonadError (catchError),
                                                      runExceptT)
@@ -356,8 +357,8 @@ checkTypes funcName expectedTypes args
 -- Variables, functions and classes
 -------------------------------------------------------------------------------
 
-codegenActiveClassData :: BodyGen (Maybe ClassData)
-codegenActiveClassData =
+activeClassData :: BodyGen (Maybe ClassData)
+activeClassData =
     maybe (return Nothing) (\n -> use $ bsClasses . at n) =<< use bsActiveClass
 
 -- | Add variable with given name, type and address.
@@ -366,7 +367,7 @@ addVariable varName varType typedVarAddr@(_,varAddr) = do
     checkTypes "addVariable" [TPointer varType] [typedVarAddr]
     exists <- M.member varName <$> use bsVariables
     when exists $ throwCodegenError $
-        formatSingle' "variable name is already in scope: {}" varName
+        formatSingle' "variable already exists: {}" varName
     bsVariables . at varName .= Just varData
   where
     varData = VariableData varType varAddr
@@ -379,14 +380,13 @@ reportClassNotFound :: Text -> BodyGen a
 reportClassNotFound =
     throwCodegenError . formatSingle' "no such class {}"
 
--- | Get value of variable with given name. Functions are treated as
--- variable too, but function's address is not dereferenced.
-lookupName :: Text -> BodyGen TypedOperand
-lookupName var = do
+-- | Get value of variable with given name. Function's value is pointer.
+nameToValue :: Text -> BodyGen TypedOperand
+nameToValue var = do
     f <- constructF True var
     classes <- classAndParents =<< use bsActiveClass
     methods <- mapM constructMethod classes
-    v <- maybe (return Nothing) (load >=> return . Just) =<< getPtrMaybe var
+    v <- maybe (return Nothing) (load >=> return . Just) =<< nameToPtrMaybe var
     maybe (reportNotInScope var) return $
         foldr (<|>) empty (v : methods ++ [f])
   where
@@ -402,29 +402,49 @@ lookupName var = do
     constructMethod className =
         constructF False $ mangleClassMethodName className var
 
-lookupMember :: TypedOperand -> Text -> BodyGen TypedOperand
-lookupMember operand memberName = getMemberPtr operand memberName >>= load
+-- | Get value of member `memberName` of given `operand`. Operand must
+-- be a pointer to a class type.
+memberNameToValue :: TypedOperand -> Text -> BodyGen TypedOperand
+memberNameToValue operand memberName = memberNameToPtr operand memberName >>= load
 
--- | Get address of variable with given name. Functions are not
--- considered by this function.
-getPtr :: Text -> BodyGen TypedOperand
-getPtr varName =
-    maybe (reportNotInScope varName) return =<< getPtrMaybe varName
+-- | Get address of lvalue with given name.
+nameToPtr :: Text -> BodyGen TypedOperand
+nameToPtr varName =
+    maybe (reportNotInScope varName) return =<< nameToPtrMaybe varName
 
-getMemberPtr :: TypedOperand -> Text -> BodyGen TypedOperand
-getMemberPtr op@(TPointer (TClass className _),_) varName = do
+-- | Get address of member `memberName` of given `operand`.
+memberNameToPtr :: TypedOperand -> Text -> BodyGen TypedOperand
+memberNameToPtr operand@(TPointer (TClass className _),_) memberName = do
     classDataMaybe <- use (bsClasses . at className)
     maybe
         (reportClassNotFound className)
-        (\cd ->
-              maybe (reportNotInScope varName) return =<<
-              getMemberPtrMaybe True op varName cd)
+        (maybe (reportNotInScope memberName) return <=<
+         getMemberPtrMaybe True operand memberName)
         classDataMaybe
-getMemberPtr (t,_) _ =
+memberNameToPtr (t,_) _ =
     throwCodegenError $
     formatSingle'
         "can't access member of type which is not a pointer to class {}"
         t
+
+nameToPtrMaybe :: Text -> BodyGen (Maybe TypedOperand)
+nameToPtrMaybe varName =
+    (<|>) <$>
+    use
+        (bsVariables .
+         at varName . to (fmap variableDataToTypedOperand)) <*>
+    getThisMemberPtr varName
+
+getThisMemberPtr :: Text -> BodyGen (Maybe TypedOperand)
+getThisMemberPtr varName
+  | varName == thisPtrName = pure Nothing
+  | otherwise = do
+      thisPtr <- nameToPtrMaybe thisPtrName
+      case thisPtr of
+          Nothing -> pure Nothing
+          Just ptr ->
+              maybe (pure Nothing) (getMemberPtrMaybe False ptr varName) =<<
+              activeClassData
 
 getMemberPtrMaybe :: Bool
                   -> TypedOperand
@@ -435,7 +455,7 @@ getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd 
     case M.lookupIndex varName $ cd ^. cdVariables of
         Nothing -> pure Nothing
         Just i -> do
-            let classVariable = M.elemAt i (cd ^. cdVariables) ^. _2
+            let (_, classVariable) = M.elemAt i (cd ^. cdVariables)
             when (considerPrivate && classVariable ^. cvPrivate) $
                 throwCodegenError $
                 formatSingle' "variable {} is private" varName
@@ -447,25 +467,6 @@ getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd 
                     , AST.ConstantOperand $ constInt32 $ fromIntegral i]
                     []
 getMemberPtrMaybe _ _ _ _ = pure Nothing
-
-getPtrMaybe :: Text -> BodyGen (Maybe TypedOperand)
-getPtrMaybe varName =
-    (<|>) <$>
-    use
-        (bsVariables .
-         at varName . to (fmap variableDataToTypedOperand)) <*>
-    getThisMemberPtr varName
-
-getThisMemberPtr :: Text -> BodyGen (Maybe TypedOperand)
-getThisMemberPtr varName
-  | varName == thisPtrName = pure Nothing
-  | otherwise = do
-      thisPtr <- getPtrMaybe thisPtrName
-      case thisPtr of
-          Nothing -> pure Nothing
-          Just ptr ->
-              maybe (pure Nothing) (getMemberPtrMaybe False ptr varName) =<<
-              codegenActiveClassData
 
 -------------------------------------------------------------------------------
 -- Unary operations
@@ -576,10 +577,20 @@ call (fnType,fnOperand) args =
                   isSC <- isSubClass className expectedType
                   if isSC
                       then (: args) <$>
-                           (getPtr thisPtrName >>= flip cast (head argTypes))
+                           (nameToPtr thisPtrName >>= flip cast (head argTypes))
                       else pure args
     unwrapClassPtr (TPointer (TClass n _)) = Just n
     unwrapClassPtr _ = Nothing
+
+methodCall :: TypedOperand -> Text -> [TypedOperand] -> BodyGen TypedOperand
+methodCall varPtr@(TPointer (TClass className _),_) methodName exprs = do
+    let mangledName = mangleClassMethodName className methodName
+        args = varPtr : exprs
+    f <- nameToValue mangledName
+    call f args
+methodCall (t,_) _ _ =
+    throwCodegenError $
+    formatSingle' "attempt to call method of something strange (type is {})" t
 
 alloca :: Type -> BodyGen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []

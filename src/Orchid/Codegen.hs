@@ -18,9 +18,6 @@ import           Orchid.Codegen.Common   as Exports (FunctionData (..),
                                                      TypedOperand,
                                                      lookupClassType,
                                                      lookupType,
-                                                     mangleClassMethodName,
-                                                     orchidTypeToLLVM,
-                                                     thisPtrName,
                                                      throwCodegenError)
 import           Orchid.Codegen.Constant as Exports hiding (constInt32)
 import           Orchid.Codegen.Module   as Exports

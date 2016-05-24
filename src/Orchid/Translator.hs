@@ -266,31 +266,21 @@ instance C.ToBody OT.Expr C.TypedOperand where
                     C.call f [a', b']
     toBody (OT.EAtom a) = C.toBody a
 
-methodCall :: C.TypedOperand -> OT.Identifier -> [OT.Expr] -> C.BodyGen C.TypedOperand
-methodCall varPtr@(C.TPointer (C.TClass className _),_) methodName exprs = do
-    let mangledName = C.mangleClassMethodName className methodName
-    fPtr <- C.lookupName mangledName
-    args <- (varPtr :) <$> mapM C.toBody exprs
-    C.call fPtr args
-methodCall (t,_) _ _ =
-    C.throwCodegenError $
-    formatSingle' "attempt to call method of something strange (type is {})" t
-
 instance C.ToBody OT.AtomExpr C.TypedOperand where
     toBody (OT.AEAtom a) = C.toBody a
     toBody (OT.AECall (OT.AEAccess expr methodName) exprs) = do
         varPtr <- C.toBodyPtr expr
-        methodCall varPtr methodName exprs
+        C.methodCall varPtr methodName =<< mapM C.toBody exprs
     toBody (OT.AECall f exprs) =
         join $ C.call <$> C.toBody f <*> mapM C.toBody exprs
     toBody (OT.AEAccess expr fieldName) =
-        flip C.lookupMember fieldName =<< C.toBodyPtr expr
+        flip C.memberNameToValue fieldName =<< C.toBodyPtr expr
 
 instance C.ToBody OT.Atom C.TypedOperand where
     toBody (OT.AExpr e) = C.toBody e
-    toBody (OT.AIdentifier v) = C.lookupName v
-    toBody (OT.ANumber n) = (C.TInt64,) . AST.ConstantOperand <$> C.toConstant n
-    toBody (OT.ABool b) = (C.TBool,) . AST.ConstantOperand <$> C.toConstant b
+    toBody (OT.AIdentifier v) = C.nameToValue v
+    toBody (OT.ANumber n) = (C.TInt64,) <$> C.toConstantOperand n
+    toBody (OT.ABool b) = (C.TBool,) <$> C.toConstantOperand b
 
 instance C.ToBody OT.CompoundStmt () where
     toBody (OT.CSIf s) = C.toBody s
@@ -357,11 +347,11 @@ instance C.ToBodyPtr OT.AtomExpr where
             "can't create lvalue ptr from result of function call"
     toBodyPtr (OT.AEAccess expr memberName) = do
         exprPtr <- C.toBodyPtr expr
-        C.getMemberPtr exprPtr memberName
+        C.memberNameToPtr exprPtr memberName
 
 instance C.ToBodyPtr OT.Atom where
     toBodyPtr (OT.AExpr e) = C.toBodyPtr e
-    toBodyPtr (OT.AIdentifier i) = C.getPtr i
+    toBodyPtr (OT.AIdentifier i) = C.nameToPtr i
     toBodyPtr _ = C.throwCodegenError "can't create lvalue ptr from constant"
 
 --------------------------------------------------------------------------------
