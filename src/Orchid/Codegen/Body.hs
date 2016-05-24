@@ -124,15 +124,15 @@ type Named = AST.Named
 -- step-by-step.
 data BlockState = BlockState
     {
-      -- ^ Block has an index which helps to sort blocks after they
+      -- | Block has an index which helps to sort blocks after they
       -- are constructed.
       _bsIdx          :: Word
     ,
-      -- ^ Block contains ordered list of instructions which is
+      -- | Block contains ordered list of instructions which is
       -- initially empty and is populated step-by-step.
       _bsInstructions :: [Named AST.Instruction]
     ,
-      -- ^ Block must contain a terminator. This field is optional,
+      -- | Block must contain a terminator. This field is optional,
       -- because block is constructed using iterative process.
       _bsTerm         :: Maybe (Named AST.Terminator)
     } deriving (Show)
