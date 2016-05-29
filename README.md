@@ -258,11 +258,6 @@ the following:
 - stack
 - `llvm-as` and `lli` are needed to run tests
 
-Note that by default stack will download and install correct version
-of `GHC` into isolated environment, that's why GHC is not listed in
-list of dependencies. You can modify this behavior by specifying
-`system-ghc: True` in [stack.yaml](stack.yaml). However, it may break
-compilation on some systems.
 
 ## Usage
 
