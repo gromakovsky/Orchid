@@ -236,6 +236,7 @@ startClassDef className parent members = do
             parents
     msClasses . at className %= fmap (set cdVariables (concat parentVars))
     mapM_ addClassVar members
+    use variablesLens >>= addTypeDefinition
     use variablesLens >>= addConstructor
     msClass .= Just className
   where
@@ -246,23 +247,21 @@ startClassDef className parent members = do
     --        , (t, C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName)))
     -- members' = map convertVirtualMethod virtualMethods ++ members
     variablesLens = msClasses . at className . _Just . cdVariables
+    addTypeDefinition =
+        addDefn . AST.TypeDefinition (convertString className) . Just .
+        AST.StructureType False .
+        map (orchidTypeToLLVM . view cvType)
     addConstructor variables = do
         let memberTypes = map (view cvType) variables
         addFuncDef' (TClass className memberTypes) className [] $
             constructorBody variables
     constructorBody variables = do
         let operand =
-                AST.ConstantOperand . C.Struct Nothing False .
+                AST.ConstantOperand .
+                C.Struct (Just . convertString $ className) False .
                 map (view cvInitializer) $
                 variables
-            expectedType = TClass className . map (view cvType) $ variables
-        -- B.ret . Just . snd =<< B.lowLevelCast operand expectedType
-        B.ret .
-            Just .
-            snd $
-            (expectedType, operand)
-    -- isFunctionPointerType (TPointer (TFunction _ _)) = True
-    -- isFunctionPointerType _ = False
+        B.ret . Just $ operand
     addClassVar classVar = do
         alreadyAdded <-
             isJust . find ((== classVar ^. cvName) . view cvName) <$>

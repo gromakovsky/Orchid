@@ -109,8 +109,8 @@ orchidTypeToLLVM (TFunction retType argTypes) =
         (orchidTypeToLLVM retType)
         (map orchidTypeToLLVM argTypes)
         False
-orchidTypeToLLVM (TClass _ types) =
-    T.StructureType False $ map orchidTypeToLLVM types
+orchidTypeToLLVM (TClass className _) =
+    T.NamedTypeReference $ convertString className
 
 mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
 mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
