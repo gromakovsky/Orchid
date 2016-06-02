@@ -21,43 +21,45 @@ module Orchid.Codegen.Module
        , finishClassDef
        ) where
 
-import           Control.Lens              (at, makeLenses, makeLensesFor, set,
-                                            use, view, (%=), (.=), (<>=), (^.),
-                                            _Just)
-import           Control.Monad             (when)
-import           Control.Monad.Except      (ExceptT, MonadError (throwError),
-                                            runExceptT)
-import           Control.Monad.State       (MonadState, State, runState)
-import           Data.List                 (find)
-import qualified Data.Map                  as M
-import           Data.Maybe                (isJust)
-import qualified Data.Set                  as S
-import           Data.String.Conversions   (convertString)
-import           Data.Text                 (Text)
-import qualified LLVM.General.AST          as AST
-import qualified LLVM.General.AST.Constant as C
-import qualified LLVM.General.AST.Global   as G
+import           Control.Lens               (at, makeLenses, makeLensesFor, set,
+                                             use, view, (%=), (.=), (<>=), (^.),
+                                             _Just)
+import           Control.Monad              (when)
+import           Control.Monad.Except       (ExceptT, MonadError (throwError),
+                                             runExceptT)
+import           Control.Monad.State        (MonadState, State, runState)
+import           Data.List                  (find)
+import qualified Data.Map                   as M
+import           Data.Maybe                 (fromJust, isJust)
+import qualified Data.Set                   as S
+import           Data.String.Conversions    (convertString)
+import           Data.Text                  (Text)
+import qualified LLVM.General.AST           as AST
+import           LLVM.General.AST.AddrSpace (AddrSpace (AddrSpace))
+import qualified LLVM.General.AST.Constant  as C
+import qualified LLVM.General.AST.Global    as G
 
-import           Serokell.Util             (format')
+import           Serokell.Util              (format')
 
-import           Orchid.Codegen.Body       (ToBody (toBody), createBlocks,
-                                            execBodyGen)
-import qualified Orchid.Codegen.Body       as B
-import           Orchid.Codegen.Common     (ClassVariable, ClassesMap,
-                                            FunctionData (FunctionData),
-                                            FunctionsMap,
-                                            HasClasses (classesLens),
-                                            VariableData (..), VariablesMap,
-                                            cdVariables, classAndParents,
-                                            cvInitializer, cvName, cvType,
-                                            fdArgTypes, fdRetType,
-                                            lookupClassType,
-                                            mangleClassMethodName, mkClassData,
-                                            orchidTypeToLLVM, thisPtrName,
-                                            throwCodegenError)
-import           Orchid.Codegen.Constant   (ToConstant (toConstant))
-import           Orchid.Codegen.Type       (Type (..))
-import           Orchid.Error              (CodegenException)
+import           Orchid.Codegen.Body        (ToBody (toBody), createBlocks,
+                                             execBodyGen)
+import qualified Orchid.Codegen.Body        as B
+import           Orchid.Codegen.Common      (ClassVariable, ClassesMap,
+                                             FunctionData (FunctionData),
+                                             FunctionsMap,
+                                             HasClasses (classesLens),
+                                             VariableData (..), VariablesMap,
+                                             cdVMethods, cdVariables,
+                                             classAndParents, cvInitializer,
+                                             cvName, cvType, fdArgTypes,
+                                             fdRetType, lookupClassType,
+                                             mangleClassMethodName, mkClassData,
+                                             orchidTypeToLLVM, thisPtrName,
+                                             throwCodegenError, vTableName,
+                                             vTableType, vTableTypeName)
+import           Orchid.Codegen.Constant    (ToConstant (toConstant))
+import           Orchid.Codegen.Type        (Type (..))
+import           Orchid.Error               (CodegenException)
 
 -------------------------------------------------------------------------------
 -- Module Level
@@ -222,12 +224,12 @@ makeFuncPrivate funcName =
 startClassDef :: Text
               -> Maybe Text
               -> [ClassVariable]
+              -> [(Text, Type)]
               -> LLVM ()
-startClassDef className parent members = do
-    cls <- use msClass
-    when (isJust cls) $
-        throwCodegenError "class definition can't appear inside another class"
-    msClasses %= M.insert className (mkClassData [] parent)
+startClassDef className parent members virtualMethods = do
+    checkNestedClass
+    insertDummyClassData className parent
+    vTableStuff className virtualMethods
     parents <- tail <$> classAndParents (Just className)
     parentVars <-
         mapM
@@ -235,34 +237,39 @@ startClassDef className parent members = do
                   use $ msClasses . at n . _Just . cdVariables)
             parents
     msClasses . at className %= fmap (set cdVariables (concat parentVars))
-    mapM_ addClassVar members
-    use variablesLens >>= addTypeDefinition
-    use variablesLens >>= addConstructor
+    existingMembers <- use variablesLens
+    mapM_ addClassVarSafe members
+    let allMembers = existingMembers ++ members
+    addTypeDefinition allMembers
+    addConstructor allMembers
     msClass .= Just className
   where
-    -- convertVirtualMethod (methodName,methodType) =
-    --     let t = TPointer methodType
-    --         mangledName = mangleClassMethodName className methodName
-    --     in ( methodName
-    --        , (t, C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName)))
-    -- members' = map convertVirtualMethod virtualMethods ++ members
     variablesLens = msClasses . at className . _Just . cdVariables
+    vTableType' =
+        AST.NamedTypeReference $ convertString $ vTableTypeName className
+    vTablePtrType' = AST.PointerType vTableType' $ AddrSpace 0
     addTypeDefinition =
         addDefn . AST.TypeDefinition (convertString className) . Just .
         AST.StructureType False .
+        (vTablePtrType' :) .
         map (orchidTypeToLLVM . view cvType)
-    addConstructor variables = do
-        let memberTypes = map (view cvType) variables
-        addFuncDef' (TClass className memberTypes) className [] $
-            constructorBody variables
+    addConstructor variables =
+        addFuncDef'
+            (TClass className $ map (view cvType) variables)
+            className
+            [] $
+        constructorBody variables
     constructorBody variables = do
         let operand =
                 AST.ConstantOperand .
                 C.Struct (Just . convertString $ className) False .
+                (C.GlobalReference
+                     vTableType'
+                     (convertString $ vTableName className) :) .
                 map (view cvInitializer) $
                 variables
         B.ret . Just $ operand
-    addClassVar classVar = do
+    addClassVarSafe classVar = do
         alreadyAdded <-
             isJust . find ((== classVar ^. cvName) . view cvName) <$>
             use variablesLens
@@ -271,6 +278,56 @@ startClassDef className parent members = do
                 "variable {} is defined in class {} more than once"
                 (classVar ^. cvName, className)
         msClasses . at className . _Just . cdVariables <>= [classVar]
+
+checkNestedClass :: LLVM ()
+checkNestedClass = do
+    cls <- use msClass
+    when (isJust cls) $
+        throwCodegenError "class definition can't appear inside another class"
+
+-- A little bit hacky solution to make classAndParents function work.
+insertDummyClassData :: Text -> Maybe Text -> LLVM()
+insertDummyClassData className parent =
+    msClasses %= M.insert className (mkClassData [] parent [])
+
+vTableStuff :: Text -> [(Text, Type)] -> LLVM ()
+vTableStuff className virtualMethods = do
+    cd <- fromJust <$> use (msClasses . at className)
+    addVTableTypeDefinition
+    addVTable cd
+    msClasses . at className %=
+        fmap
+            (set cdVMethods $
+             zip
+                 (map fst virtualMethods)
+                 (map (fst . convertVirtualMethod) virtualMethods))
+  where
+    realVTableType =
+        AST.StructureType False .
+        map (orchidTypeToLLVM . fst . convertVirtualMethod) $
+        virtualMethods
+    addVTableTypeDefinition =
+        addDefn . AST.TypeDefinition (convertString $ vTableTypeName className) .
+        Just $
+        realVTableType
+    addVTable cd =
+        addDefn . AST.GlobalDefinition $
+        G.globalVariableDefaults
+        { G.name = convertString $ vTableName className
+        , G.type' = orchidTypeToLLVM $ vTableType className cd
+        , G.initializer = Just .
+          C.Struct (Just . convertString . vTableTypeName $ className) False .
+          map (snd . convertVirtualMethod) $
+          virtualMethods
+        }
+    convertVirtualMethod (methodName,methodType) =
+        let t = TPointer $ addThisPtrType methodType
+            mangledName = mangleClassMethodName className methodName
+        in ( t
+           , C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName))
+    addThisPtrType (TFunction retType argTypes) =
+        TFunction retType $ TPointer (TClass className []) : argTypes
+    addThisPtrType _ = error "addThisPtrType: not TFunction"
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass

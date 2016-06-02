@@ -156,30 +156,29 @@ instance C.ToLLVM OT.FuncDef where
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
-        join $ C.startClassDef clsName clsParent <$> members -- <*> virtualMethods
+        join $ C.startClassDef clsName clsParent <$> members <*> virtualMethods
         C.toLLVM clsBody
         C.finishClassDef
       where
         members =
-            catMaybes <$>
-            (mapM classStmtToMember . OT.getClassSuite $
-             clsBody)
+            catMaybes <$> (mapM classStmtToMember . OT.getClassSuite $ clsBody)
         classStmtToMember (OT.ClassStmt _ (Left _)) = pure Nothing
         classStmtToMember (OT.ClassStmt access (Right OT.DeclStmt{..})) =
-            Just <$> (C.mkClassVariable dsVar <$> C.lookupType dsType <*>
-            C.toConstant dsExpr <*>
-            pure (access == OT.AMPrivate))
-        -- virtualMethods =
-        --     catMaybes <$>
-        --     (mapM payloadToVirtualFunction .
-        --      map OT.csPayload . OT.getClassSuite $
-        --      clsBody)
-        -- payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
-        --     Just . (funcName, ) <$>
-        --     do args <- mapM (fmap fst . convertTypedArg) funcArgs
-        --        ret <- maybe (pure C.TVoid) C.lookupType funcRet
-        --        return $ C.TFunction ret args
-        -- payloadToVirtualFunction _ = pure Nothing
+            Just <$>
+            (C.mkClassVariable dsVar <$> C.lookupType dsType <*>
+             C.toConstant dsExpr <*>
+             pure (access == OT.AMPrivate))
+        virtualMethods =
+            catMaybes <$>
+            (mapM payloadToVirtualFunction .
+             map OT.csPayload . OT.getClassSuite $
+             clsBody)
+        payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
+            Just . (funcName, ) <$>
+            do args <- mapM (fmap fst . convertTypedArg) funcArgs
+               ret <- maybe (pure C.TVoid) C.lookupType funcRet
+               return $ C.TFunction ret args
+        payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite

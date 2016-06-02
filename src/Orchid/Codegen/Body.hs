@@ -78,7 +78,7 @@ import           Control.Monad.State                (MonadState, State,
 import           Data.Function                      (on)
 import           Data.List                          (findIndex, sortBy)
 import qualified Data.Map                           as M
-import           Data.Maybe                         (isJust)
+import           Data.Maybe                         (isJust, fromJust)
 import qualified Data.Set                           as S
 import           Data.String                        (IsString)
 import           Data.String.Conversions            (convertString)
@@ -103,12 +103,12 @@ import           Orchid.Codegen.Common              (ClassData, ClassesMap, Func
                                                      VariablesMap, cdVariables,
                                                      classAndParents, cvName,
                                                      cvPrivate, cvType,
-                                                     fdArgTypes, fdRetType,
+                                                     fdArgTypes, fdRetType, cdVMethods,
                                                      functionDataToType,
                                                      isSubClass,
                                                      mangleClassMethodName,
                                                      orchidTypeToLLVM,
-                                                     thisPtrName,
+                                                     thisPtrName, vTablePtrType,
                                                      throwCodegenError,
                                                      typeToFunctionData,
                                                      uniqueName,
@@ -464,7 +464,7 @@ getMemberPtrMaybe considerPrivate (TPointer (TClass _ _),ptrOperand) varName cd 
                     False
                     ptrOperand
                     [ AST.ConstantOperand $ constInt32 0
-                    , AST.ConstantOperand $ constInt32 $ fromIntegral i]
+                    , AST.ConstantOperand $ constInt32 $ fromIntegral (i + 1)]
                     []
 getMemberPtrMaybe _ _ _ _ = pure Nothing
 
@@ -555,7 +555,10 @@ castArgsDo (operand, t) = cast operand t `catchError` const (pure operand)
 call :: TypedOperand -> [TypedOperand] -> BodyGen TypedOperand
 call (fnType,fnOperand) args =
     maybe
-        (throwCodegenError "attempt to call something that is not a function")
+        (throwCodegenError $
+         formatSingle'
+             "attempt to call something that is not a function (type is {}"
+             fnType)
         callDo $
     typeToFunctionData fnType
   where
@@ -583,14 +586,49 @@ call (fnType,fnOperand) args =
     unwrapClassPtr _ = Nothing
 
 methodCall :: TypedOperand -> Text -> [TypedOperand] -> BodyGen TypedOperand
-methodCall varPtr@(TPointer (TClass className _),_) methodName exprs = do
-    let mangledName = mangleClassMethodName className methodName
-        args = varPtr : exprs
-    f <- nameToValue mangledName
-    call f args
+methodCall varPtr@(TPointer (TClass className _),_) methodName args = do
+    cd <- fromJust <$> use (bsClasses . at className)
+    methodCallDo varPtr className methodName args cd
 methodCall (t,_) _ _ =
     throwCodegenError $
     formatSingle' "attempt to call method of something strange (type is {})" t
+
+methodCallDo :: TypedOperand
+             -> Text
+             -> Text
+             -> [TypedOperand]
+             -> ClassData
+             -> BodyGen TypedOperand
+methodCallDo varPtr className methodName args classData =
+    case findIndex ((== methodName) . fst) $ virtualMethods of
+        Nothing -> do
+            f <- nameToValue mangledName
+            call f args'
+        Just i -> do
+            let methodType = snd $ virtualMethods !! i
+            vPtrPtr <-
+                instr (TPointer $ vTablePtrType className classData) $
+                AST.GetElementPtr
+                    False
+                    (snd varPtr)
+                    [ AST.ConstantOperand $ constInt32 0
+                    , AST.ConstantOperand $ constInt32 0]
+                    []
+            vPtr <- load vPtrPtr
+            fPtr <-
+                instr (TPointer methodType) $
+                AST.GetElementPtr
+                    False
+                    (snd vPtr)
+                    [ AST.ConstantOperand $ constInt32 0
+                    , AST.ConstantOperand $ constInt32 0]
+                    []
+            f <- load fPtr
+            call f args'
+  where
+    virtualMethods = classData ^. cdVMethods
+    mangledName = mangleClassMethodName className methodName
+    args' = varPtr : args
 
 alloca :: Type -> BodyGen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []

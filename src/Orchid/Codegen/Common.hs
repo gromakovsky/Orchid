@@ -12,6 +12,8 @@ module Orchid.Codegen.Common
        , thisPtrName
        , orchidTypeToLLVM
        , mangleClassMethodName
+       , vTableTypeName
+       , vTableName
        , TypedOperand
        , VariableData (..)
        , variableDataToTypedOperand
@@ -30,6 +32,7 @@ module Orchid.Codegen.Common
        , mkClassData
        , cdVariables
        , cdParent
+       , cdVMethods
        , ClassesMap
        , HasClasses (..)
        , lookupType
@@ -37,9 +40,11 @@ module Orchid.Codegen.Common
        , classAndParents
        , parentClass
        , isSubClass
+       , vTableType
+       , vTablePtrType
        ) where
 
-import           Control.Lens               (Lens', at, makeLenses, use, view)
+import           Control.Lens               (Lens', at, makeLenses, use, view, (^.))
 import           Control.Monad.Except       (MonadError (throwError))
 import           Control.Monad.State        (MonadState)
 import qualified Data.Map                   as M
@@ -115,6 +120,12 @@ orchidTypeToLLVM (TClass className _) =
 mangleClassMethodName :: (IsString s, Monoid s) => s -> s -> s
 mangleClassMethodName className funcName = mconcat [className, "$$", funcName]
 
+vTableTypeName :: (IsString s, Monoid s) => s -> s
+vTableTypeName className = mconcat [className, "$$", "vtable_type"]
+
+vTableName :: (IsString s, Monoid s) => s -> s
+vTableName className = mconcat [className, "$$", "vtable_data"]
+
 -------------------------------------------------------------------------------
 -- Common types
 -------------------------------------------------------------------------------
@@ -145,6 +156,8 @@ functionDataToType :: FunctionData -> Type
 functionDataToType FunctionData{..} = TFunction fdRetType fdArgTypes
 
 typeToFunctionData :: Type -> Maybe FunctionData
+typeToFunctionData (TPointer (TFunction retType argTypes)) =
+    Just $ FunctionData retType argTypes
 typeToFunctionData (TFunction retType argTypes) =
     Just $ FunctionData retType argTypes
 typeToFunctionData _ = Nothing
@@ -170,11 +183,12 @@ mkClassVariable = ClassVariable
 data ClassData = ClassData
     { _cdVariables :: [ClassVariable]
     , _cdParent    :: Maybe Text
+    , _cdVMethods  :: [(Text, Type)]
     } deriving (Show)
 
 $(makeLenses ''ClassData)
 
-mkClassData :: [ClassVariable] -> Maybe Text -> ClassData
+mkClassData :: [ClassVariable] -> Maybe Text -> [(Text, Type)] -> ClassData
 mkClassData = ClassData
 
 type ClassesMap = M.Map Text ClassData
@@ -231,3 +245,10 @@ isSubClass
     :: (MonadState s m, HasClasses s)
     => Text -> Text -> m Bool
 isSubClass subC superC = elem superC <$> classAndParents (Just subC)
+
+vTableType :: Text -> ClassData -> Type
+vTableType className classData =
+    TClass (vTableTypeName className) . map snd $ classData ^. cdVMethods
+
+vTablePtrType :: Text -> ClassData -> Type
+vTablePtrType className = TPointer . vTableType className
