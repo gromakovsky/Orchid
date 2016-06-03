@@ -24,7 +24,8 @@ import           Serokell.Util             (formatSingle')
 
 import           Orchid.Codegen.Common     (HasClasses (classesLens),
                                             cdVariables, cvInitializer,
-                                            throwCodegenError)
+                                            throwCodegenError, vTableName,
+                                            vTableTypeName)
 import           Orchid.Codegen.Type       (Type (..))
 import           Orchid.Error              (CodegenException)
 
@@ -59,14 +60,18 @@ instance ToConstant Bool where
 complexConstant
     :: (MonadError CodegenException m, MonadState s m, HasClasses s)
     => Text -> [(Type, C.Constant)] -> m C.Constant
-complexConstant constructorName [] = do
-    cls <- use $ classesLens . at constructorName
+complexConstant className [] = do
+    cls <- use $ classesLens . at className
     maybe onFailure onSuccess cls
   where
+    vTableType' =
+        AST.NamedTypeReference $ convertString $ vTableTypeName className
+    vTableConstant =
+        C.GlobalReference vTableType' (convertString $ vTableName className)
     onFailure =
-        throwCodegenError $
-        formatSingle' "constructor not found: {}" constructorName
+        throwCodegenError $ formatSingle' "constructor not found: {}" className
     onSuccess =
         return .
-        C.Struct (Just . convertString $ constructorName) False . map (view cvInitializer) . view cdVariables
+        C.Struct (Just . convertString $ className) False .
+        (vTableConstant :) . map (view cvInitializer) . view cdVariables
 complexConstant _ _ = throwCodegenError "constructors with arguments are not supported"
