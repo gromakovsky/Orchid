@@ -74,6 +74,7 @@ test-suite orchid-test
                      , hspec
                      , Orchid
                      , QuickCheck
+                     , serokell-core
                      , string-conversions
                      , temporary
                      , text
