@@ -3,20 +3,21 @@
 -- | Test data.
 
 module Test.Orchid.Data
-       ( factorial_ioInput
-       , classInput
-       , errorInput
-       , global_varInput
-       , type_errorInput
-       , rectangleInput
-       , private_var_insideInput
-       , private_var_outsideInput
-       , class_method_insideInput
-       , private_method_insideInput
-       , private_method_outsideInput
-       , inheritanceInput
-       , pointerInput
-       , shapeInput
+       ( factorial_ioSource
+       , classSource
+       , errorSource
+       , global_varSource
+       , type_errorSource
+       , rectangleSource
+       , private_var_insideSource
+       , private_var_outsideSource
+       , class_method_insideSource
+       , private_method_insideSource
+       , private_method_outsideSource
+       , inheritanceSource
+       , pointerSource
+       , shapeSource
+       , virtualSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -24,72 +25,77 @@ import           Data.String      (IsString)
 
 import           Test.Orchid.Util (testPath)
 
-factorial_ioInput
+factorial_ioSource
     :: IsString s
     => s
-factorial_ioInput = $(embedStringFile $ testPath "factorial_io.orc")
+factorial_ioSource = $(embedStringFile $ testPath "factorial_io.orc")
 
-classInput
+classSource
     :: IsString s
     => s
-classInput = $(embedStringFile $ testPath "class.orc")
+classSource = $(embedStringFile $ testPath "class.orc")
 
-errorInput
+errorSource
     :: IsString s
     => s
-errorInput = $(embedStringFile $ testPath "error.orc")
+errorSource = $(embedStringFile $ testPath "error.orc")
 
-global_varInput
+global_varSource
     :: IsString s
     => s
-global_varInput = $(embedStringFile $ testPath "global_var.orc")
+global_varSource = $(embedStringFile $ testPath "global_var.orc")
 
-type_errorInput
+type_errorSource
     :: IsString s
     => s
-type_errorInput = $(embedStringFile $ testPath "type_error.orc")
+type_errorSource = $(embedStringFile $ testPath "type_error.orc")
 
-rectangleInput
+rectangleSource
     :: IsString s
     => s
-rectangleInput = $(embedStringFile $ testPath "rectangle.orc")
+rectangleSource = $(embedStringFile $ testPath "rectangle.orc")
 
-private_var_insideInput
+private_var_insideSource
     :: IsString s
     => s
-private_var_insideInput = $(embedStringFile $ testPath "private_var_inside.orc")
+private_var_insideSource = $(embedStringFile $ testPath "private_var_inside.orc")
 
-private_var_outsideInput
+private_var_outsideSource
     :: IsString s
     => s
-private_var_outsideInput = $(embedStringFile $ testPath "private_var_outside.orc")
+private_var_outsideSource = $(embedStringFile $ testPath "private_var_outside.orc")
 
-class_method_insideInput
+class_method_insideSource
     :: IsString s
     => s
-class_method_insideInput = $(embedStringFile $ testPath "class_method_inside.orc")
+class_method_insideSource = $(embedStringFile $ testPath "class_method_inside.orc")
 
-private_method_insideInput
+private_method_insideSource
     :: IsString s
     => s
-private_method_insideInput = $(embedStringFile $ testPath "private_method_inside.orc")
+private_method_insideSource = $(embedStringFile $ testPath "private_method_inside.orc")
 
-private_method_outsideInput
+private_method_outsideSource
     :: IsString s
     => s
-private_method_outsideInput = $(embedStringFile $ testPath "private_method_outside.orc")
+private_method_outsideSource = $(embedStringFile $ testPath "private_method_outside.orc")
 
-inheritanceInput
+inheritanceSource
     :: IsString s
     => s
-inheritanceInput = $(embedStringFile $ testPath "inheritance.orc")
+inheritanceSource = $(embedStringFile $ testPath "inheritance.orc")
 
-pointerInput
+pointerSource
     :: IsString s
     => s
-pointerInput = $(embedStringFile $ testPath "pointer.orc")
+pointerSource = $(embedStringFile $ testPath "pointer.orc")
 
-shapeInput
+shapeSource
     :: IsString s
     => s
-shapeInput = $(embedStringFile $ testPath "shape.orc")
+shapeSource = $(embedStringFile $ testPath "shape.orc")
+
+virtualSource
+    :: IsString s
+    => s
+virtualSource = $(embedStringFile $ testPath "virtual.orc")

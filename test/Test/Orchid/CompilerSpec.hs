@@ -26,21 +26,22 @@ spec =
     describe "Compiler" $ do
         describe "compileStr" $ do
             it "Compiles code in Orchid language" $ do
-                expectNormalOutput "factorial_io.orc" factorial_ioInput "6\n" [720]
-                expectNormalOutput "class.orc" classInput "" [42]
-                expectErrorOutput "error.orc" errorInput ""
-                expectNormalOutput "global_var.orc" global_varInput "" [1, 2]
-                expectNormalOutput "rectangle.orc" rectangleInput "" [2, 1]
-                expectNormalOutput "private_var_inside.orc" private_var_insideInput "" [42]
-                expectNormalOutput "class_method_inside.orc" class_method_insideInput "" [2, 1]
-                expectNormalOutput "private_method_inside.orc" private_method_insideInput "" [2, 1]
-                expectNormalOutput "inheritance.orc" inheritanceInput "" [10, 25]
-                expectNormalOutput "pointer.orc" pointerInput "" [10]
-                expectNormalOutput "shape.orc" shapeInput "" [0, 12, 3]
+                expectNormalOutput "factorial_io.orc" factorial_ioSource "6\n" [720]
+                expectNormalOutput "class.orc" classSource "" [42]
+                expectErrorOutput "error.orc" errorSource ""
+                expectNormalOutput "global_var.orc" global_varSource "" [1, 2]
+                expectNormalOutput "rectangle.orc" rectangleSource "" [2, 1]
+                expectNormalOutput "private_var_inside.orc" private_var_insideSource "" [42]
+                expectNormalOutput "class_method_inside.orc" class_method_insideSource "" [2, 1]
+                expectNormalOutput "private_method_inside.orc" private_method_insideSource "" [2, 1]
+                expectNormalOutput "inheritance.orc" inheritanceSource "" [10, 25]
+                expectNormalOutput "pointer.orc" pointerSource "" [10]
+                expectNormalOutput "shape.orc" shapeSource "" [0, 12, 3]
+                expectNormalOutput "virtual.orc" virtualSource "" [1, 2, 2, 22, 23]
             it "Reports error for invalid code" $ do
-                expectError "type_error.orc" type_errorInput
-                expectError "private_var_outside.orc" private_var_outsideInput
-                expectError "private_method_outside.orc" private_method_outsideInput
+                expectError "type_error.orc" type_errorSource
+                expectError "private_var_outside.orc" private_var_outsideSource
+                expectError "private_method_outside.orc" private_method_outsideSource
   where
     checkOutput prName prSource prInput prOutput = do
         (`shouldBe` prOutput) =<< programOutput prName prSource prInput
