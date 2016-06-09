@@ -140,6 +140,10 @@ instance C.ToLLVM OT.SmallStmt where
     toLLVM OT.SSPass = return ()
     toLLVM (OT.SSFlow _) =
         C.throwCodegenError "top-level flow statements are not allowed"
+    toLLVM (OT.SSNew _) =
+        C.throwCodegenError "top-level new statements are not allowed"
+    toLLVM (OT.SSDelete _) =
+        C.throwCodegenError "top-level delete statements are not allowed"
 
 instance C.ToLLVM OT.DeclStmt where
     toLLVM OT.DeclStmt{..} = do
@@ -211,6 +215,8 @@ instance C.ToBody OT.SmallStmt () where
     toBody (OT.SSExpr e) = C.toBody e
     toBody OT.SSPass = return ()
     toBody (OT.SSFlow fs) = C.toBody fs
+    toBody (OT.SSNew ns) = C.toBody ns
+    toBody (OT.SSDelete ds) = C.toBody ds
 
 instance C.ToBody OT.DeclStmt () where
     toBody OT.DeclStmt{..} = do
@@ -235,6 +241,18 @@ instance C.ToBody OT.FlowStmt () where
 instance C.ToBody OT.ReturnStmt () where
     toBody (OT.ReturnStmt me) =
         () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toBody) me
+
+instance C.ToBody OT.NewStmt () where
+    toBody (OT.NewStmt ti v) = do
+        t <- convertTypeIdentifier ti
+        let t' = C.TPointer t
+        addr <- C.alloca t'
+        val <- C.new t
+        C.store addr val
+        C.addVariable v t' addr
+
+instance C.ToBody OT.DeleteStmt () where
+    toBody (OT.DeleteStmt v) = C.delete =<< C.nameToValue v
 
 instance C.ToBody OT.Expr C.TypedOperand where
     toBody (OT.EUnary OT.UnaryAddr a) = C.toBodyPtr a

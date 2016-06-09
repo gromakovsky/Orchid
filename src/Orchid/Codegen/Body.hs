@@ -56,6 +56,8 @@ module Orchid.Codegen.Body
        , call
        , methodCall
        , alloca
+       , new
+       , delete
        , store
        , load
 
@@ -216,10 +218,10 @@ addEmptyBlock :: Text -> BodyGen AST.Name
 addEmptyBlock blockName = do
     ix <- fromIntegral . M.size <$> use bsBlocks
     names <- use bsNames
-    let new = emptyBlock ix
+    let newBlk = emptyBlock ix
         (qname,supply) = uniqueName blockName names
         astName = convertString qname
-    bsBlocks %= M.insert astName new
+    bsBlocks %= M.insert astName newBlk
     bsNames .= supply
     return astName
 
@@ -631,8 +633,35 @@ methodCallDo varPtr className methodName args classData =
     mangledName = mangleClassMethodName className methodName
     args' = varPtr : args
 
+sizeOf :: Type -> BodyGen TypedOperand
+sizeOf ty = do
+    sizePtr <-
+        instr (TPointer ty) $
+        AST.GetElementPtr
+            False
+            (AST.ConstantOperand $ C.Null $ orchidTypeToLLVM (TPointer ty))
+            [AST.ConstantOperand $ constInt32 1]
+            []
+    instr TInt32 $ AST.PtrToInt (snd sizePtr) (orchidTypeToLLVM TInt32) []
+
 alloca :: Type -> BodyGen TypedOperand
 alloca ty = instr (TPointer ty) $ AST.Alloca (orchidTypeToLLVM ty) Nothing 0 []
+
+new :: Type -> BodyGen TypedOperand
+new ty = do
+    s <- sizeOf ty
+    malloc <- nameToValue "malloc"
+    bytePtr <- call malloc [s]
+    lowLevelCast (snd bytePtr) $ TPointer ty
+
+delete :: TypedOperand -> BodyGen ()
+delete ((TPointer _),op) = do
+    free <- nameToValue "free"
+    bytePtr <- lowLevelCast op $ TPointer TByte
+    () <$ call free [bytePtr]
+delete (ty,_) =
+    throwCodegenError $
+    formatSingle' "can't delete value of non-pointer type {}" ty
 
 store :: TypedOperand -> TypedOperand -> BodyGen ()
 store (ptrType,ptr) (valType,val) = do
