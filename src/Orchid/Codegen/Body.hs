@@ -78,7 +78,7 @@ import           Control.Monad.State                (MonadState, State,
 import           Data.Function                      (on)
 import           Data.List                          (findIndex, sortBy)
 import qualified Data.Map                           as M
-import           Data.Maybe                         (isJust, fromJust)
+import           Data.Maybe                         (fromJust, isJust)
 import qualified Data.Set                           as S
 import           Data.String                        (IsString)
 import           Data.String.Conversions            (convertString)
@@ -100,18 +100,19 @@ import           Orchid.Codegen.Common              (ClassData, ClassesMap, Func
                                                      FunctionsMap,
                                                      HasClasses (classesLens),
                                                      Names, TypedOperand, VariableData (VariableData),
-                                                     VariablesMap, cdVariables,
+                                                     VariablesMap,
+                                                     cdAllVMethods, cdVariables,
                                                      classAndParents, cvName,
                                                      cvPrivate, cvType,
-                                                     fdArgTypes, fdRetType, cdVMethods,
+                                                     fdArgTypes, fdRetType,
                                                      functionDataToType,
                                                      isSubClass,
                                                      mangleClassMethodName,
                                                      orchidTypeToLLVM,
-                                                     thisPtrName, vTablePtrType,
+                                                     thisPtrName,
                                                      throwCodegenError,
                                                      typeToFunctionData,
-                                                     uniqueName,
+                                                     uniqueName, vTablePtrType,
                                                      variableDataToTypedOperand)
 import           Orchid.Codegen.Constant            (constBool, constInt32,
                                                      constInt64)
@@ -626,7 +627,7 @@ methodCallDo varPtr className methodName args classData =
             f <- load fPtr
             call f args'
   where
-    virtualMethods = classData ^. cdVMethods
+    virtualMethods = classData ^. cdAllVMethods
     mangledName = mangleClassMethodName className methodName
     args' = varPtr : args
 

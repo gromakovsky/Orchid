@@ -21,14 +21,15 @@ module Orchid.Codegen.Module
        , finishClassDef
        ) where
 
-import           Control.Lens               (at, makeLenses, makeLensesFor, set,
-                                             use, view, (%=), (.=), (<>=), (^.),
-                                             _Just)
+import           Control.Lens               (at, ix, makeLenses, makeLensesFor,
+                                             set, use, view, (%=), (&), (.=),
+                                             (.~), (<>=), (^.), _Just)
 import           Control.Monad              (when)
 import           Control.Monad.Except       (ExceptT, MonadError (throwError),
                                              runExceptT)
 import           Control.Monad.State        (MonadState, State, runState)
-import           Data.List                  (find)
+import           Data.Foldable              (foldlM)
+import           Data.List                  (find, findIndex)
 import qualified Data.Map                   as M
 import           Data.Maybe                 (fromJust, isJust)
 import qualified Data.Set                   as S
@@ -49,8 +50,9 @@ import           Orchid.Codegen.Common      (ClassVariable, ClassesMap,
                                              FunctionsMap,
                                              HasClasses (classesLens),
                                              VariableData (..), VariablesMap,
-                                             cdVMethods, cdVariables,
-                                             classAndParents, cvInitializer,
+                                             cdAllVMethods, cdOurVMethods,
+                                             cdVariables, classAndParents,
+                                             compareTypesSmart, cvInitializer,
                                              cvName, cvType, fdArgTypes,
                                              fdRetType, lookupClassType,
                                              mangleClassMethodName, mkClassData,
@@ -229,8 +231,8 @@ startClassDef :: Text
 startClassDef className parent members virtualMethods = do
     checkNestedClass
     insertDummyClassData className parent
-    vTableStuff className virtualMethods
     parents <- tail <$> classAndParents (Just className)
+    defineVTable className parents virtualMethods
     parentVars <-
         mapM
             (\n ->
@@ -288,46 +290,93 @@ checkNestedClass = do
 -- A little bit hacky solution to make classAndParents function work.
 insertDummyClassData :: Text -> Maybe Text -> LLVM()
 insertDummyClassData className parent =
-    msClasses %= M.insert className (mkClassData [] parent [])
+    msClasses %= M.insert className (mkClassData [] parent [] [])
 
-vTableStuff :: Text -> [(Text, Type)] -> LLVM ()
-vTableStuff className virtualMethods = do
+data ExtendedVirtualMethod = ExtendedVirtualMethod
+    { evmClass :: !Text
+    , evmName  :: !Text
+    , evmType  :: !Type
+    } deriving (Show)
+
+defineVTable :: Text -> [Text] -> [(Text, Type)] -> LLVM ()
+defineVTable className parents virtualMethods = do
+    parentVirtualMethods <-
+        mapM
+            (\n ->
+                  map (uncurry (ExtendedVirtualMethod n)) <$>
+                  use (msClasses . at n . _Just . cdOurVMethods))
+            parents
+    let ourVirtualMethods =
+            map
+                ((\(mName,mType) ->
+                       ExtendedVirtualMethod className mName $ TPointer $
+                       addThisPtrType className mType))
+                virtualMethods
+    jointVirtualMethods <-
+        joinVirtualMethods parentVirtualMethods ourVirtualMethods
+    let setVMethods lens methods =
+            msClasses . at className %=
+            fmap
+                (set lens $
+                 map
+                     (\ExtendedVirtualMethod{..} ->
+                           (evmName, evmType))
+                     methods)
+    setVMethods cdOurVMethods ourVirtualMethods
+    setVMethods cdAllVMethods jointVirtualMethods
     cd <- fromJust <$> use (msClasses . at className)
-    addVTableTypeDefinition
-    addVTable cd
-    msClasses . at className %=
-        fmap
-            (set cdVMethods $
-             zip
-                 (map fst virtualMethods)
-                 (map (fst . convertVirtualMethod) virtualMethods))
+    addVTableTypeDefinition jointVirtualMethods
+    addVTable cd jointVirtualMethods
   where
-    realVTableType =
-        AST.StructureType False .
-        map (orchidTypeToLLVM . fst . convertVirtualMethod) $
-        virtualMethods
+    realVTableType jointVirtualMethods =
+        AST.StructureType False . map (orchidTypeToLLVM . evmType) $
+        jointVirtualMethods
     addVTableTypeDefinition =
         addDefn . AST.TypeDefinition (convertString $ vTableTypeName className) .
-        Just $
+        Just .
         realVTableType
-    addVTable cd =
+    addVTable cd jointVirtualMethods =
         addDefn . AST.GlobalDefinition $
         G.globalVariableDefaults
         { G.name = convertString $ vTableName className
         , G.type' = orchidTypeToLLVM $ vTableType className cd
         , G.initializer = Just .
           C.Struct (Just . convertString . vTableTypeName $ className) False .
-          map (snd . convertVirtualMethod) $
-          virtualMethods
+          map virtualMethodConstant $
+          jointVirtualMethods
         }
-    convertVirtualMethod (methodName,methodType) =
-        let t = TPointer $ addThisPtrType methodType
-            mangledName = mangleClassMethodName className methodName
-        in ( t
-           , C.GlobalReference (orchidTypeToLLVM t) (convertString mangledName))
-    addThisPtrType (TFunction retType argTypes) =
-        TFunction retType $ TPointer (TClass className []) : argTypes
-    addThisPtrType _ = error "addThisPtrType: not TFunction"
+    virtualMethodConstant ExtendedVirtualMethod{..} =
+        C.GlobalReference
+            (orchidTypeToLLVM evmType)
+            (convertString $ mangleClassMethodName evmClass evmName)
+    addThisPtrType methodClass (TFunction retType argTypes) =
+        TFunction retType $ TPointer (TClass methodClass []) : argTypes
+    addThisPtrType _ _ = error "addThisPtrType: not TFunction"
+
+joinVirtualMethods
+    :: [[ExtendedVirtualMethod]]
+    -> [ExtendedVirtualMethod]
+    -> LLVM [ExtendedVirtualMethod]
+joinVirtualMethods parentMethods ourMethods =
+    foldlM step [] (concat (reverse parentMethods) ++ ourMethods)
+  where
+    step
+        :: [ExtendedVirtualMethod]
+        -> ExtendedVirtualMethod
+        -> LLVM [ExtendedVirtualMethod]
+    step l evm =
+        case findIndex ((evmName evm ==) . evmName) l of
+            Nothing -> pure $ l ++ [evm]
+            Just i -> do
+                let tExpected = evmType (l !! i)
+                    tFound = evmType evm
+                typeMismatch <- not <$> compareTypesSmart tExpected tFound
+                when typeMismatch $
+                    throwCodegenError $
+                    format'
+                        "Virtual method type mismatch (found {}, expected {})"
+                        (tFound, tExpected)
+                return $ (l & ix i .~ evm)
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass

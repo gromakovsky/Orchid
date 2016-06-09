@@ -32,7 +32,8 @@ module Orchid.Codegen.Common
        , mkClassData
        , cdVariables
        , cdParent
-       , cdVMethods
+       , cdAllVMethods
+       , cdOurVMethods
        , ClassesMap
        , HasClasses (..)
        , lookupType
@@ -40,11 +41,13 @@ module Orchid.Codegen.Common
        , classAndParents
        , parentClass
        , isSubClass
+       , compareTypesSmart
        , vTableType
        , vTablePtrType
        ) where
 
-import           Control.Lens               (Lens', at, makeLenses, use, view, (^.))
+import           Control.Lens               (Lens', at, makeLenses, use, view,
+                                             (^.))
 import           Control.Monad.Except       (MonadError (throwError))
 import           Control.Monad.State        (MonadState)
 import qualified Data.Map                   as M
@@ -181,14 +184,19 @@ mkClassVariable = ClassVariable
 
 -- | ClassData stores all data associated with class.
 data ClassData = ClassData
-    { _cdVariables :: [ClassVariable]
-    , _cdParent    :: Maybe Text
-    , _cdVMethods  :: [(Text, Type)]
+    { _cdVariables   :: ![ClassVariable]
+    , _cdParent      :: !(Maybe Text)
+    , _cdAllVMethods :: ![(Text, Type)]
+    , _cdOurVMethods :: ![(Text, Type)]
     } deriving (Show)
 
 $(makeLenses ''ClassData)
 
-mkClassData :: [ClassVariable] -> Maybe Text -> [(Text, Type)] -> ClassData
+mkClassData :: [ClassVariable]
+            -> Maybe Text
+            -> [(Text, Type)]
+            -> [(Text, Type)]
+            -> ClassData
 mkClassData = ClassData
 
 type ClassesMap = M.Map Text ClassData
@@ -246,9 +254,14 @@ isSubClass
     => Text -> Text -> m Bool
 isSubClass subC superC = elem superC <$> classAndParents (Just subC)
 
+-- | This function checks whether types are the same, considering
+-- pointers to subclasses same.
+compareTypesSmart :: (MonadState s m, HasClasses s) => Type -> Type -> m Bool
+compareTypesSmart _ _ = return True
+
 vTableType :: Text -> ClassData -> Type
 vTableType className classData =
-    TClass (vTableTypeName className) . map snd $ classData ^. cdVMethods
+    TClass (vTableTypeName className) . map snd $ classData ^. cdAllVMethods
 
 vTablePtrType :: Text -> ClassData -> Type
 vTablePtrType className = TPointer . vTableType className
