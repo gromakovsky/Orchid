@@ -3,6 +3,7 @@
 module Orchid.Types
        ( Identifier
        , Number
+       , TypeIdentifier (..)
        , Input (..)
        , Stmt (..)
        , SimpleStmt (..)
@@ -30,8 +31,9 @@ module Orchid.Types
        , AccessModifier (..)
        ) where
 
-import           Data.Int  (Int64)
-import           Data.Text (Text)
+import           Data.Int    (Int64)
+import           Data.String (IsString (fromString))
+import           Data.Text   (Text)
 
 type Identifier = Text
 type Number = Int64
@@ -49,6 +51,16 @@ data Stmt
     = SSimple !SimpleStmt
     | SCompound !CompoundStmt
     deriving (Show, Eq)
+
+-- | TypeIdentifier is either name of type or pointer to type.
+-- type → NAME | type '*'
+data TypeIdentifier
+    = TypeIdentifier !Identifier
+    | PointerTypeIdentifier !TypeIdentifier
+    deriving (Show,Eq)
+
+instance IsString TypeIdentifier where
+    fromString = TypeIdentifier . fromString
 
 -- | Simple statement is a list of small statements.
 -- simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
@@ -71,9 +83,9 @@ data SmallStmt
 
 -- | Declaration statement declares variable. It contains variable
 -- type, variable name and initial value.
--- decl_stmt → NAME NAME '=' expr
+-- decl_stmt → type NAME '=' expr
 data DeclStmt = DeclStmt
-    { dsType :: !Identifier
+    { dsType :: !TypeIdentifier
     , dsVar  :: !Identifier
     , dsExpr :: !Expr
     } deriving (Show, Eq)
@@ -100,9 +112,9 @@ data ReturnStmt =
     deriving (Show, Eq)
 
 -- | New statement contains type name and variable name.
--- new_stmt → 'new' NAME NAME
+-- new_stmt → 'new' type NAME
 data NewStmt = NewStmt
-    { nsType :: !Identifier
+    { nsType :: !TypeIdentifier
     , nsVar  :: !Identifier
     } deriving (Show,Eq)
 
@@ -213,13 +225,13 @@ data WhileStmt =
 
 -- | Function definition contains function name, list of typed
 -- arguments, optional return value and body suite.
--- funcdef → 'def' NAME parameters ['→' NAME] ':' suite
+-- funcdef → 'def' NAME parameters ['→' type] ':' suite
 -- parameters → '(' [typedarglist] ')'
 -- typedarglist → typedarg (',' typedarg)* [',']
 data FuncDef = FuncDef
     { funcName :: !Identifier
     , funcArgs :: ![TypedArgument]
-    , funcRet  :: !(Maybe Identifier)
+    , funcRet  :: !(Maybe TypeIdentifier)
     , funcBody :: !Suite
     } deriving (Show, Eq)
 
@@ -233,11 +245,10 @@ data ClassDef = ClassDef
     } deriving (Show,Eq)
 
 -- | Type argument consists of name and type.
--- typedarg → NAME ':' NAME [*]
+-- typedarg → NAME ':' type [*]
 data TypedArgument = TypedArgument
-    { taName    :: !Identifier
-    , taType    :: !Identifier
-    , taPointer :: !Bool
+    { taName :: !Identifier
+    , taType :: !TypeIdentifier
     } deriving (Show, Eq)
 
 -- | Suite is basically a list of statements.

@@ -95,6 +95,15 @@ validRes5 = [T.SSimple $ T.SimpleStmt [newStmt, delStmt]]
     newStmt = T.SSNew $ T.NewStmt "Text" "t"
     delStmt = T.SSDelete $ T.DeleteStmt "t"
 
+validInput6 :: Text
+validInput6 = "int64 * a = b;\n"
+
+validRes6 :: [T.Stmt]
+validRes6 = [T.SSimple $ T.SimpleStmt [stmt]]
+  where
+    stmt = T.SSDecl $ T.DeclStmt (T.PointerTypeIdentifier "int64") "a" e
+    e = T.EAtom $ T.AEAtom $ T.AIdentifier "b"
+
 spec :: Spec
 spec =
     describe "Parser" $ do
@@ -112,7 +121,8 @@ spec =
         , (validInput2, validRes2)
         , (validInput3, validRes3)
         , (validInput4, validRes4)
-        , (validInput5, validRes5)]
+        , (validInput5, validRes5)
+        , (validInput6, validRes6)]
     invalidInputs = [invalid1, invalid2]
     invalid1 = "def f():\n  pass\n pass"
     invalid2 = "1 + / 2"

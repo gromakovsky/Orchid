@@ -1,14 +1,16 @@
 file_input → (NEWLINE | stmt)*
 stmt → simple_stmt | compound_stmt
 
+type → NAME | type '*'
+
 simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
 small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt | new_stmt | delete_stmt
-decl_stmt → NAME NAME '=' expr
+decl_stmt → type NAME '=' expr
 expr_stmt → [expr '='] expr
 pass_stmt → 'pass'
 flow_stmt → return_stmt
 return_stmt → 'return' [expr]
-new_stmt → 'new' NAME NAME
+new_stmt → 'new' type NAME
 delete_stmt → 'delete' NAME
 
 expr → and_test ('or' and_test)*
@@ -30,11 +32,11 @@ argument → expr
 compound_stmt → if_stmt | while_stmt | funcdef | classdef
 if_stmt → 'if' expr ':' suite ['else' ':' suite]
 while_stmt → 'while' expr ':' suite
-funcdef → 'def' NAME parameters ['→' NAME] ':' suite
+funcdef → 'def' NAME parameters ['→' type] ':' suite
 classdef → 'class' NAME ['(' NAME ')'] ':' class_suite
 parameters → '(' [typedarglist] ')'
 typedarglist → typedarg (',' typedarg)* [',']
-typedarg → NAME ':' NAME [*]
+typedarg → NAME ':' type
 suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 class_suite → NEWLINE INDENT class_stmt+ DEDENT
 class_stmt → access_modifier (['virtual'] funcdef | decl_stmt NEWLINE)

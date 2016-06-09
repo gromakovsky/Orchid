@@ -55,6 +55,14 @@ parseStmt =
     P.try (OT.SSimple <$> parseSimpleStmt) <|>
     OT.SCompound <$> parseCompoundStmt
 
+parseTypeIdentifier :: Parser OT.TypeIdentifier
+parseTypeIdentifier =
+    makeTypeIdentifier <$> parseName <*> (length <$> P.many starL)
+  where
+    makeTypeIdentifier name 0 = OT.TypeIdentifier name
+    makeTypeIdentifier name n =
+        OT.PointerTypeIdentifier $ makeTypeIdentifier name (n - 1)
+
 parseSimpleStmt :: Parser OT.SimpleStmt
 parseSimpleStmt =
     OT.SimpleStmt <$>
@@ -76,7 +84,7 @@ parseSmallStmt =
 
 parseDeclStmt :: Parser OT.DeclStmt
 parseDeclStmt =
-    OT.DeclStmt <$> parseName <*> parseName <*>
+    OT.DeclStmt <$> parseTypeIdentifier <*> parseName <*>
     (assignL >> parseExpr)
 
 parseExprStmt :: Parser OT.ExprStmt
@@ -95,7 +103,7 @@ parseReturnStmt = do
 parseNewStmt :: Parser OT.NewStmt
 parseNewStmt = do
     () <$ newL
-    OT.NewStmt <$> parseName <*> parseName
+    OT.NewStmt <$> parseTypeIdentifier <*> parseName
 
 parseDeleteStmt :: Parser OT.DeleteStmt
 parseDeleteStmt = do
@@ -179,7 +187,7 @@ parseFuncDef :: Parser OT.FuncDef
 parseFuncDef =
     OT.FuncDef <$> (defL >> parseName) <*>
     (P.between lparenL rparenL parseOptionalTypedArgs) <*>
-    (P.optionMaybe . P.try $ arrowL >> parseName) <*>
+    (P.optionMaybe . P.try $ arrowL >> parseTypeIdentifier) <*>
     (colonL >> parseSuite)
   where
     parseOptionalTypedArgs =
@@ -198,8 +206,7 @@ parseClassDef =
 
 parseTypedArgument :: Parser OT.TypedArgument
 parseTypedArgument =
-    OT.TypedArgument <$> parseName <*> (colonL >> parseName) <*>
-    (maybe False (const True) <$> P.optionMaybe starL)
+    OT.TypedArgument <$> parseName <*> (colonL >> parseTypeIdentifier)
 
 parseSuite :: Parser OT.Suite
 parseSuite =

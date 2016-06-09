@@ -15,7 +15,7 @@ module Orchid.Codegen
 
 import           Orchid.Codegen.Body     as Exports
 import           Orchid.Codegen.Common   as Exports (FunctionData (..),
-                                                     TypedOperand,
+                                                     HasClasses, TypedOperand,
                                                      lookupClassType,
                                                      lookupType,
                                                      mkClassVariable,

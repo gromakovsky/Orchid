@@ -14,7 +14,8 @@ module Orchid.Translator
 
 import           Control.Exception       (throwIO)
 import           Control.Monad           (join, unless, when, (<=<))
-import           Control.Monad.Except    (ExceptT, runExceptT)
+import           Control.Monad.Except    (ExceptT, MonadError, runExceptT)
+import           Control.Monad.State     (MonadState)
 import           Data.FileEmbed          (embedStringFile)
 import qualified Data.Map                as M
 import           Data.Maybe              (catMaybes)
@@ -107,13 +108,16 @@ handleFatalError =
     either (throwIO . FatalError . formatSingle' "[FATAL] {}" . show) return <=<
     runExceptT
 
+convertTypeIdentifier
+    :: (MonadError CodegenException m, MonadState s m, C.HasClasses s)
+    => OT.TypeIdentifier -> m C.Type
+convertTypeIdentifier (OT.TypeIdentifier name) = C.lookupType name
+convertTypeIdentifier (OT.PointerTypeIdentifier t) =
+    C.TPointer <$> convertTypeIdentifier t
+
 convertTypedArg :: OT.TypedArgument -> C.LLVM (C.Type, Text)
 convertTypedArg OT.TypedArgument{..} =
-    (, taName) . pointerIfNeeded <$> C.lookupType taType
-  where
-    pointerIfNeeded
-      | taPointer = C.TPointer
-      | otherwise = id
+    (, taName) <$> convertTypeIdentifier taType
 
 --------------------------------------------------------------------------------
 -- C.ToLLVM
@@ -139,7 +143,7 @@ instance C.ToLLVM OT.SmallStmt where
 
 instance C.ToLLVM OT.DeclStmt where
     toLLVM OT.DeclStmt{..} = do
-        t <- C.lookupType dsType
+        t <- convertTypeIdentifier dsType
         C.addGlobalVariable t dsVar dsExpr
 
 instance C.ToLLVM OT.CompoundStmt where
@@ -152,7 +156,7 @@ instance C.ToLLVM OT.CompoundStmt where
 
 instance C.ToLLVM OT.FuncDef where
     toLLVM OT.FuncDef{..} = do
-        ret <- maybe (return C.TVoid) C.lookupType funcRet
+        ret <- maybe (return C.TVoid) convertTypeIdentifier funcRet
         args <- mapM convertTypedArg funcArgs
         C.addFuncDef ret funcName args funcBody
 
@@ -167,7 +171,7 @@ instance C.ToLLVM OT.ClassDef where
         classStmtToMember (OT.ClassStmt _ (Left _)) = pure Nothing
         classStmtToMember (OT.ClassStmt access (Right OT.DeclStmt{..})) =
             Just <$>
-            (C.mkClassVariable dsVar <$> C.lookupType dsType <*>
+            (C.mkClassVariable dsVar <$> convertTypeIdentifier dsType <*>
              C.toConstant dsExpr <*>
              pure (access == OT.AMPrivate))
         virtualMethods =
@@ -178,7 +182,7 @@ instance C.ToLLVM OT.ClassDef where
         payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
             Just . (funcName, ) <$>
             do args <- mapM (fmap fst . convertTypedArg) funcArgs
-               ret <- maybe (pure C.TVoid) C.lookupType funcRet
+               ret <- maybe (pure C.TVoid) convertTypeIdentifier funcRet
                return $ C.TFunction ret args
         payloadToVirtualFunction _ = pure Nothing
 
@@ -210,7 +214,7 @@ instance C.ToBody OT.SmallStmt () where
 
 instance C.ToBody OT.DeclStmt () where
     toBody OT.DeclStmt{..} = do
-        t <- C.lookupType dsType
+        t <- convertTypeIdentifier dsType
         addr <- C.alloca t
         val <- C.toBody dsExpr
         C.store addr val
