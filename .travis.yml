@@ -77,9 +77,9 @@ before_install:
 # Using compiler above sets CC to an invalid value, so unset it
 - unset CC
 
-- sudo add-apt-repository ppa:h-rayflood/llvm -y
+- sudo add-apt-repository ppa:jonathonf/llvm -y
 - sudo apt-get update -q
-- sudo apt-get install llvm-toolchain-3.5
+- sudo apt-get install llvm-3.5 llvm-3.5-dev
 - sudo rm /usr/bin/cpp /usr/bin/gcc /usr/bin/g++
 - sudo ln -s /usr/bin/cpp-4.8 /usr/bin/cpp
 - sudo ln -s /usr/bin/gcc-4.8 /usr/bin/gcc
