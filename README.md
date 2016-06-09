@@ -17,7 +17,8 @@ Orchid is a programming language not intended to be used be anyone. It's named O
 - [x] user-defined classes
   - [x] public/private
   - [x] inheritance
-  - [ ] virtual functions
+  - [x] virtual methods
+- [x] dynamic memory (new/delete)
 
 ## Syntax
 
@@ -25,7 +26,7 @@ Orchid's syntax is similar to the one used in Python programming
 language. However, it's extremely simplified and there are some
 changes because Orchid is statically typed and is not interpreted but
 compiled. Full grammar specification may be found in
-[grammar.txt](grammar.txt). Below is a less formal descprition of
+[grammar.txt](grammar.txt). Below is a less formal description of
 syntax.
 
 ### Overall structure
@@ -195,6 +196,30 @@ else:
   return a
 ```
 
+### `new`
+
+Operator `new` allocated memory in heap for the value of given type
+and stores pointer under given name. Syntax is `new TYPE NAME`. Value
+is not initialized.
+
+Example:
+
+```
+new Point p
+```
+
+### `delete`
+
+Operator `delete` frees memory allocated by `new`. It takes variable
+name which must store pointer returned by `new`. Syntax is `delete
+NAME`.
+
+Example:
+
+```
+delete p
+```
+
 ## Semantics
 
 **TODO** Most of semantics is absolutely intuitive, but still has to be described here.
@@ -258,6 +283,13 @@ the following:
 - stack
 - `llvm-as` and `lli` are needed to run tests
 
+### Mac OS
+
+There is a known problem with build on Mac OS. It is described in this
+[issue](https://github.com/commercialhaskell/stack/issues/1826). One
+possible solution is to set correct value for `DYLD_LIBRARY_PATH`
+environmental variable and workaround
+[another bug](http://docs.haskellstack.org/en/stable/faq/#why-is-dyld_library_path-ignored).
 
 ## Usage
 
