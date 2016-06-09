@@ -622,7 +622,7 @@ methodCallDo varPtr className methodName args classData =
                     False
                     (snd vPtr)
                     [ AST.ConstantOperand $ constInt32 0
-                    , AST.ConstantOperand $ constInt32 0]
+                    , AST.ConstantOperand $ constInt32 $ fromIntegral i]
                     []
             f <- load fPtr
             call f args'
