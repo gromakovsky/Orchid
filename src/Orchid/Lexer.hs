@@ -49,6 +49,8 @@ module Orchid.Lexer
        , privateL
        , publicL
        , virtualL
+       , newL
+       , deleteL
        ) where
 
 import           Control.Exception    (throwIO)
@@ -121,7 +123,10 @@ anyL =
     , indentL
     , dedentL
     , privateL
-    , publicL]
+    , publicL
+    , virtualL
+    , newL
+    , deleteL]
 
 firstToken :: P.SourceName -> Text -> Either P.ParseError Token
 firstToken = P.runParser anyL lexerState
@@ -160,7 +165,9 @@ lexerGen = Tok.makeTokenParser style
                               , "while"
                               , "or"
                               , "and"
-                              , "not"]
+                              , "not"
+                              , "new"
+                              , "delete"]
         , Tok.reservedOpNames = [ "<"
                                 , ">"
                                 , "=="
@@ -314,6 +321,12 @@ publicL = parseReserved "public" TokPublic
 
 virtualL :: Lexer
 virtualL = parseReserved "virtual" TokVirtual
+
+newL :: Lexer
+newL = parseReserved "new" TokNew
+
+deleteL :: Lexer
+deleteL = parseReserved "delete" TokDelete
 
 -------------------------------------------------------------------------------
 -- Internals

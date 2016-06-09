@@ -50,6 +50,8 @@ data Token
     | TokPublic
     | TokPrivate
     | TokVirtual
+    | TokNew
+    | TokDelete
     deriving (Show,Eq)
 
 tokenRepr :: Token -> Text
@@ -93,3 +95,5 @@ tokenRepr TokDedent = "<DEDENT>"
 tokenRepr TokPublic = "public"
 tokenRepr TokPrivate = "private"
 tokenRepr TokVirtual = "virtual"
+tokenRepr TokNew = "new"
+tokenRepr TokDelete = "delete"

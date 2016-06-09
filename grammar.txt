@@ -2,12 +2,14 @@ file_input → (NEWLINE | stmt)*
 stmt → simple_stmt | compound_stmt
 
 simple_stmt → small_stmt (';' small_stmt)* [';'] NEWLINE
-small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt
+small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt | new_stmt | delete_stmt
 decl_stmt → NAME NAME '=' expr
 expr_stmt → [expr '='] expr
 pass_stmt → 'pass'
 flow_stmt → return_stmt
 return_stmt → 'return' [expr]
+new_stmt → 'new' NAME NAME
+delete_stmt → 'delete' NAME
 
 expr → and_test ('or' and_test)*
 and_test → not_test ('and' not_test)*

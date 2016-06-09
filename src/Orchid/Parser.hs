@@ -18,12 +18,12 @@ import           Text.Parsec.Text  (GenParser)
 import           Orchid.Error      (ParserException (ParserException))
 import           Orchid.Lexer      (LexerState, ampersandL, andL, arrowL,
                                     assignL, boolL, classL, colonL, commaL,
-                                    dedentL, defL, dotL, doubleStarL, elseL,
-                                    equalL, geL, gtL, ifL, indentL, leL,
+                                    dedentL, defL, deleteL, dotL, doubleStarL,
+                                    elseL, equalL, geL, gtL, ifL, indentL, leL,
                                     lexerState, lparenL, ltL, minusL, nameL,
-                                    neL, newlineL, notL, numberL, orL, passL,
-                                    percentL, plusL, privateL, publicL, returnL,
-                                    rparenL, semicolonL, slashL, starL,
+                                    neL, newL, newlineL, notL, numberL, orL,
+                                    passL, percentL, plusL, privateL, publicL,
+                                    returnL, rparenL, semicolonL, slashL, starL,
                                     virtualL, whileL)
 import qualified Orchid.Token      as Tok
 import qualified Orchid.Types      as OT
@@ -70,7 +70,9 @@ parseSmallStmt =
         [ P.try $ OT.SSDecl <$> parseDeclStmt
         , P.try $ OT.SSExpr <$> parseExprStmt
         , OT.SSPass <$ passL
-        , OT.SSFlow <$> parseFlowStmt]
+        , OT.SSFlow <$> parseFlowStmt
+        , OT.SSNew <$> parseNewStmt
+        , OT.SSDelete <$> parseDeleteStmt]
 
 parseDeclStmt :: Parser OT.DeclStmt
 parseDeclStmt =
@@ -89,6 +91,16 @@ parseReturnStmt :: Parser OT.ReturnStmt
 parseReturnStmt = do
     () <$ returnL
     OT.ReturnStmt <$> P.optionMaybe (P.try parseExpr)
+
+parseNewStmt :: Parser OT.NewStmt
+parseNewStmt = do
+    () <$ newL
+    OT.NewStmt <$> parseName <*> parseName
+
+parseDeleteStmt :: Parser OT.DeleteStmt
+parseDeleteStmt = do
+    () <$ deleteL
+    OT.DeleteStmt <$> parseName
 
 parseExpr :: Parser OT.Expr
 parseExpr = E.buildExpressionParser table parseEAtom

@@ -86,6 +86,15 @@ validRes4 = [T.SSimple $ T.SimpleStmt [T.SSExpr exprStmt]]
     printExpr = T.EAtom $ T.AECall f []
     f = T.AEAccess (T.AEAtom $ T.AIdentifier "p") "print"
 
+validInput5 :: Text
+validInput5 = "new Text t; delete t;\n"
+
+validRes5 :: [T.Stmt]
+validRes5 = [T.SSimple $ T.SimpleStmt [newStmt, delStmt]]
+  where
+    newStmt = T.SSNew $ T.NewStmt "Text" "t"
+    delStmt = T.SSDelete $ T.DeleteStmt "t"
+
 spec :: Spec
 spec =
     describe "Parser" $ do
@@ -102,7 +111,8 @@ spec =
         [ (validInput1, validRes1)
         , (validInput2, validRes2)
         , (validInput3, validRes3)
-        , (validInput4, validRes4)]
+        , (validInput4, validRes4)
+        , (validInput5, validRes5)]
     invalidInputs = [invalid1, invalid2]
     invalid1 = "def f():\n  pass\n pass"
     invalid2 = "1 + / 2"

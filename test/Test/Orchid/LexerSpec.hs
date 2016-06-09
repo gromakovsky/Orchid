@@ -28,6 +28,7 @@ spec =
                 fToken "False a b \r\r\r\t" `shouldBe` Right (TokBool False)
                 fToken "<" `shouldBe` Right TokLT
                 fToken "<=" `shouldBe` Right TokLE
+                fToken "new" `shouldBe` Right TokNew
                 fToken "" `shouldSatisfy` isLeft
                 fToken "#ks;dfklsf\n" `shouldSatisfy` isLeft
                 fToken "$$$$$$$$" `shouldSatisfy` isLeft

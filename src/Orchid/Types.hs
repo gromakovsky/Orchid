@@ -11,6 +11,8 @@ module Orchid.Types
        , ExprStmt (..)
        , FlowStmt (..)
        , ReturnStmt (..)
+       , NewStmt (..)
+       , DeleteStmt (..)
        , Expr (..)
        , UnaryOp (..)
        , BinaryOp (..)
@@ -55,14 +57,17 @@ data SimpleStmt =
     deriving (Show, Eq)
 
 -- | Small statement is either variable declaration or expression
--- statement or pass statement or flow statement.
--- small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt
+-- statement or pass statement or flow statement or new statement or
+-- delete statement.
+-- small_stmt → decl_stmt | expr_stmt | pass_stmt | flow_stmt | new_stmt | delete_stmt
 data SmallStmt
     = SSDecl !DeclStmt
     | SSExpr !ExprStmt
     | SSPass
     | SSFlow !FlowStmt
-    deriving (Show, Eq)
+    | SSNew !NewStmt
+    | SSDelete !DeleteStmt
+    deriving (Show,Eq)
 
 -- | Declaration statement declares variable. It contains variable
 -- type, variable name and initial value.
@@ -93,6 +98,19 @@ data FlowStmt =
 data ReturnStmt =
     ReturnStmt !(Maybe Expr)
     deriving (Show, Eq)
+
+-- | New statement contains type name and variable name.
+-- new_stmt → 'new' NAME NAME
+data NewStmt = NewStmt
+    { nsType :: !Identifier
+    , nsVar  :: !Identifier
+    } deriving (Show,Eq)
+
+-- | Delete statement contains variable name.
+-- delete_stmt → 'delete' NAME
+data DeleteStmt =
+    DeleteStmt !Identifier
+    deriving (Show,Eq)
 
 -- | Expression is either unary operation applied to expression or
 -- binary operation applied to two expressions or atom expression.
