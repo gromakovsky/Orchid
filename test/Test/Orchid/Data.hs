@@ -18,6 +18,7 @@ module Test.Orchid.Data
        , pointerSource
        , shapeSource
        , virtualSource
+       , newSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -99,3 +100,8 @@ virtualSource
     :: IsString s
     => s
 virtualSource = $(embedStringFile $ testPath "virtual.orc")
+
+newSource
+    :: IsString s
+    => s
+newSource = $(embedStringFile $ testPath "new.orc")
