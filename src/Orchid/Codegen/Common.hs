@@ -58,7 +58,8 @@ import           Data.Text.Buildable        (Buildable (build))
 import qualified LLVM.General.AST           as AST
 import           LLVM.General.AST.AddrSpace (AddrSpace (AddrSpace))
 import qualified LLVM.General.AST.Constant  as C
-import qualified LLVM.General.AST.Type      as T (Type (..), i1, i64, void)
+import qualified LLVM.General.AST.Type      as T (Type (..), i1, i32, i64, i8,
+                                                  void)
 
 import           Serokell.Util              (formatSingle', show')
 
@@ -107,7 +108,9 @@ thisPtrName :: IsString s => s
 thisPtrName = "this"
 
 orchidTypeToLLVM :: Type -> T.Type
+orchidTypeToLLVM TInt32 = T.i32
 orchidTypeToLLVM TInt64 = T.i64
+orchidTypeToLLVM TByte = T.i8
 orchidTypeToLLVM TBool = T.i1
 orchidTypeToLLVM TVoid = T.void
 orchidTypeToLLVM (TPointer t) =

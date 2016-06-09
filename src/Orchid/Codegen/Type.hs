@@ -10,6 +10,8 @@ import           Data.Text.Buildable (Buildable (build))
 -- | Types supported by Codegen.
 data Type
     = TInt64
+    | TInt32
+    | TByte
     | TBool
     | TVoid
     | TPointer Type

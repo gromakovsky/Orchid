@@ -6,6 +6,9 @@ declare void @exit(i32)
 declare i32 @scanf(i8*, ...)
 declare i32 @printf(i8*, ...)
 
+declare i8* @malloc(i32) nounwind
+declare void @free(i8*) nounwind
+
 define void @__stdExit(i32 %status)
 {
     call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([16 x i8]* @__error_msg, i32 0, i32 0))

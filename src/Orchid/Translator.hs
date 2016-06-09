@@ -55,7 +55,9 @@ translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
         M.fromList
             [ ("stdReadInt", C.FunctionData C.TInt64 [])
             , ("stdWriteInt", C.FunctionData C.TVoid [C.TInt64])
-            , ("stdExit", C.FunctionData C.TVoid [C.TInt64])]
+            , ("stdExit", C.FunctionData C.TVoid [C.TInt64])
+            , ("malloc", C.FunctionData (C.TPointer C.TByte) [C.TInt32])
+            , ("free", C.FunctionData C.TVoid [C.TPointer C.TByte])]
     preludeClasses = M.empty
     preludeVariables = M.empty
 
