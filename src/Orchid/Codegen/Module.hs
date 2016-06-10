@@ -124,46 +124,12 @@ addDefn :: AST.Definition -> LLVM ()
 addDefn d = msModule . mDefinitions <>= [d]
 
 -- | Add function with given return type, name, arguments and suite to
--- module. This function sets active class for given codegen.
-addFuncDef'
-    :: (B.ToBody a r)
-    => Type -> Text -> [(Type, Text)] -> a -> LLVM ()
-addFuncDef' retType funcName args suite = do
-    funcs <- use msFunctions
-    privFuncs <- use msPrivateFunctions
-    classes <- use msClasses
-    vars <- use msVariables
-    activeClass <- use msClass
-    case bodyEither funcs privFuncs classes vars activeClass of
-        Left e -> throwError e
-        Right body -> do
-            addDefn $ AST.GlobalDefinition $
-                G.functionDefaults
-                { G.name = funcName'
-                , G.parameters = parameters
-                , G.returnType = orchidTypeToLLVM retType
-                , G.basicBlocks = body
-                }
-            msFunctions . at funcName .= Just funcData
-  where
-    funcName' = convertString funcName
-    funcData =
-        FunctionData
-        { fdRetType = retType
-        , fdArgTypes = map fst args
-        }
-    bodyEither funcs privFuncs classes vars activeClass =
-        execBodyGen funcs privFuncs classes vars activeClass (toBody suite) >>=
-        createBlocks
-    parameters =
-        ( [G.Parameter (orchidTypeToLLVM t) (convertString n) [] | (t,n) <- args]
-        , False)
-
+-- module taking active class into account.
 addFuncDef :: B.ToBody a r => Type -> Text -> [(Type, Text)] -> a -> LLVM ()
 addFuncDef retType funcName args suite = do
     maybe globalCase classCase =<< use msClass
   where
-    globalCase = addFuncDef' retType funcName args bodyGlobal
+    globalCase = addFuncDefDo retType funcName args bodyGlobal
     bodyGlobal = do
         mapM_ storeArgument args
         B.toBody suite
@@ -179,7 +145,7 @@ addFuncDef retType funcName args suite = do
         classType <- lookupClassType className
         let thisArg = (TPointer classType, thisPtrName)
             mangledFuncName = mangleClassMethodName className funcName
-        addFuncDef' retType mangledFuncName (thisArg : args) $
+        addFuncDefDo retType mangledFuncName (thisArg : args) $
             bodyClass classType
     bodyClass classType = do
         let thisType = TPointer classType
@@ -188,6 +154,40 @@ addFuncDef retType funcName args suite = do
             , AST.LocalReference (orchidTypeToLLVM thisType) thisPtrName)
         mapM_ storeArgument args
         B.toBody suite
+
+addFuncDefDo
+    :: (B.ToBody a r)
+    => Type -> Text -> [(Type, Text)] -> a -> LLVM ()
+addFuncDefDo retType funcName args suite = do
+    msFunctions . at funcName .= Just funcData
+    funcs <- use msFunctions
+    privFuncs <- use msPrivateFunctions
+    classes <- use msClasses
+    vars <- use msVariables
+    activeClass <- use msClass
+    case bodyEither funcs privFuncs classes vars activeClass of
+        Left e -> throwError e
+        Right body -> do
+            addDefn $ AST.GlobalDefinition $
+                G.functionDefaults
+                { G.name = funcName'
+                , G.parameters = parameters
+                , G.returnType = orchidTypeToLLVM retType
+                , G.basicBlocks = body
+                }
+  where
+    funcName' = convertString funcName
+    funcData =
+        FunctionData
+        { fdRetType = retType
+        , fdArgTypes = map fst args
+        }
+    bodyEither funcs privFuncs classes vars activeClass =
+        execBodyGen funcs privFuncs classes vars activeClass (toBody suite) >>=
+        createBlocks
+    parameters =
+        ( [G.Parameter (orchidTypeToLLVM t) (convertString n) [] | (t,n) <- args]
+        , False)
 
 -- | This function adds global variable with given type
 -- and name to module.
@@ -256,7 +256,7 @@ startClassDef className parent members virtualMethods = do
         (vTablePtrType' :) .
         map (orchidTypeToLLVM . view cvType)
     addConstructor variables =
-        addFuncDef'
+        addFuncDefDo
             (TClass className $ map (view cvType) variables)
             className
             [] $
