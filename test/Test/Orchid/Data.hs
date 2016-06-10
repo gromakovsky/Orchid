@@ -19,6 +19,7 @@ module Test.Orchid.Data
        , shapeSource
        , virtualSource
        , newSource
+       , new_classSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -105,3 +106,8 @@ newSource
     :: IsString s
     => s
 newSource = $(embedStringFile $ testPath "new.orc")
+
+new_classSource
+    :: IsString s
+    => s
+new_classSource = $(embedStringFile $ testPath "new_class.orc")

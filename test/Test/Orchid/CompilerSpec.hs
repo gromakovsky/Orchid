@@ -39,6 +39,7 @@ spec =
                 expectNormalOutput "shape.orc" shapeSource "" [0, 12, 3]
                 expectNormalOutput "virtual.orc" virtualSource "" [1, 2, 2, 22, 23]
                 expectNormalOutput "new.orc" newSource "" [1, 2]
+                expectNormalOutput "new_class.orc" new_classSource "" [10, 1, 2, 0]
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorSource
                 expectError "private_var_outside.orc" private_var_outsideSource
