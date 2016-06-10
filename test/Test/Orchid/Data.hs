@@ -20,6 +20,7 @@ module Test.Orchid.Data
        , virtualSource
        , newSource
        , new_classSource
+       , fibSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -111,3 +112,8 @@ new_classSource
     :: IsString s
     => s
 new_classSource = $(embedStringFile $ testPath "new_class.orc")
+
+fibSource
+    :: IsString s
+    => s
+fibSource = $(embedStringFile $ testPath "fib.orc")
