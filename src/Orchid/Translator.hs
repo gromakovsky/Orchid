@@ -145,7 +145,15 @@ convertTypedArg OT.TypedArgument{..} =
 --------------------------------------------------------------------------------
 
 instance C.ToLLVM OT.Input where
-    toLLVM = mapM_ C.toLLVM . OT.getInput
+    toLLVM (OT.Input stmts) = do
+        mapM_ declareFunction stmts
+        mapM_ C.toLLVM stmts
+      where
+        declareFunction (OT.SCompound (OT.CSFunc OT.FuncDef{..})) = do
+            ret <- maybe (return C.TVoid) convertTypeIdentifier funcRet
+            args <- mapM convertTypedArg funcArgs
+            C.declareFunction ret funcName args
+        declareFunction _ = return ()
 
 instance C.ToLLVM OT.Stmt where
     toLLVM (OT.SSimple s) = C.toLLVM s

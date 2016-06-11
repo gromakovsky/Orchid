@@ -15,6 +15,7 @@ module Orchid.Codegen.Module
        , toLLVM
        , execLLVM
        , mkModuleState
+       , declareFunction
        , addFuncDef
        , addGlobalVariable
        , makeFuncPrivate
@@ -130,6 +131,16 @@ mkModuleState moduleName optimizeTailRecursion preludeModule preludeFunctions pr
       }
     , _msOptimizeTailRecursion = optimizeTailRecursion
     }
+
+declareFunction :: Type -> Text -> [(Type, Text)] -> LLVM ()
+declareFunction retType funcName args =
+    msFunctions . at funcName .= Just funcData
+  where
+    funcData =
+        FunctionData
+        { fdRetType = retType
+        , fdArgTypes = map fst args
+        }
 
 addDefn :: AST.Definition -> LLVM ()
 addDefn d = msModule . mDefinitions <>= [d]
