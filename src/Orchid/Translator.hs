@@ -17,6 +17,7 @@ module Orchid.Translator
        ) where
 
 import           Control.Exception       (throwIO)
+import           Control.Lens            (use)
 import           Control.Monad           (join, unless, when, (<=<))
 import           Control.Monad.Except    (ExceptT, MonadError, runExceptT)
 import           Control.Monad.State     (MonadState)
@@ -35,6 +36,7 @@ import qualified Orchid.Codegen          as C
 import           Orchid.Error            (CodegenException,
                                           FatalError (FatalError),
                                           LowLevelException (LowLevelException))
+import           Orchid.TailAccumulator  (toTailRecursive)
 import qualified Orchid.Types            as OT
 
 --------------------------------------------------------------------------------
@@ -178,10 +180,17 @@ instance C.ToLLVM OT.CompoundStmt where
     toLLVM (OT.CSClass s) = C.toLLVM s
 
 instance C.ToLLVM OT.FuncDef where
-    toLLVM OT.FuncDef{..} = do
-        ret <- maybe (return C.TVoid) convertTypeIdentifier funcRet
-        args <- mapM convertTypedArg funcArgs
-        C.addFuncDef ret funcName args funcBody
+    toLLVM f = do
+        optimizeTailRecursion <- use C.msOptimizeTailRecursion
+        mapM_ toLLVMImpl $ functions optimizeTailRecursion
+      where
+        pairToList (a,b) = [a, b]
+        functions False = [f]
+        functions True = maybe [f] pairToList $ toTailRecursive f
+        toLLVMImpl OT.FuncDef{..} = do
+            ret <- maybe (return C.TVoid) convertTypeIdentifier funcRet
+            args <- mapM convertTypedArg funcArgs
+            C.addFuncDef ret funcName args funcBody
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do

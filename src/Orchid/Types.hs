@@ -255,7 +255,7 @@ data TypedArgument = TypedArgument
 -- suite → simple_stmt | NEWLINE INDENT stmt+ DEDENT
 newtype Suite = Suite
     { getSuite :: [Stmt]
-    } deriving (Show, Eq)
+    } deriving (Show, Eq, Monoid)
 
 -- | Class suite is basically a list of class statements.
 -- class_suite → NEWLINE INDENT class_stmt+ DEDENT

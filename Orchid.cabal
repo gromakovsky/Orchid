@@ -13,6 +13,7 @@ library
                      , Orchid.Error
                      , Orchid.Lexer
                      , Orchid.Parser
+                     , Orchid.TailAccumulator
                      , Orchid.Token
                      , Orchid.Translator
                      , Orchid.Types
