@@ -11,12 +11,11 @@ import           Data.Maybe   (catMaybes, fromJust, fromMaybe, isJust,
                                isNothing)
 
 import           Orchid.Types (Atom (..), AtomExpr (..), BinaryOp (..),
-                               CompoundStmt (..), DeclStmt (..), Expr (..),
-                               ExprStmt (..), FlowStmt (..), FlowStmt (..),
-                               FuncDef (..), Identifier, IfStmt (..),
-                               ReturnStmt (..), SimpleStmt (..), SmallStmt (..),
-                               Stmt (..), Suite (..), TypedArgument (..),
-                               WhileStmt (..))
+                               CompoundStmt (..), Expr (..), FlowStmt (..),
+                               FlowStmt (..), FuncDef (..), Identifier,
+                               IfStmt (..), ReturnStmt (..), SimpleStmt (..),
+                               SmallStmt (..), Stmt (..), Suite (..),
+                               TypedArgument (..), WhileStmt (..))
 
 findReturns :: Suite -> [ReturnStmt]
 findReturns (Suite stmts) = concatMap findReturnsStmt stmts
@@ -95,40 +94,12 @@ modifyCompoundStmt f g (CSWhile (WhileStmt e s)) =
     compoundStmtModifier = modifyCompoundStmt f g
 modifyCompoundStmt _ _ s = s
 
-modifySmallStmt :: (Expr -> Expr) -> SmallStmt -> SmallStmt
-modifySmallStmt f (SSDecl (DeclStmt t v e))= SSDecl $ DeclStmt t v (f e)
-modifySmallStmt f (SSExpr (ExprStmt v e))= SSExpr $ ExprStmt v (f e)
-modifySmallStmt f (SSFlow (FSReturn (ReturnStmt me))) =
-    SSFlow $ FSReturn $ ReturnStmt (f <$> me)
-modifySmallStmt _ s = s
-
-changeFuncNameAndArgs :: Identifier -> Identifier -> Suite -> Suite
-changeFuncNameAndArgs oldName newName = modifySuite stmtModifier
-  where
-    stmtModifier = modifyStmt simpleStmtModifier compoundStmtModifier
-    simpleStmtModifier = modifySimpleStmt smallStmtModifier
-    compoundStmtModifier = modifyCompoundStmt smallStmtModifier exprModifier
-    smallStmtModifier = modifySmallStmt exprModifier
-    exprModifier (EUnary op e) = EUnary op (exprModifier e)
-    exprModifier (EBinary op e1 e2) =
-        EBinary op (exprModifier e1) (exprModifier e2)
-    exprModifier (EAtom ae) = EAtom $ atomExprModifer ae
-    atomExprModifer (AEAtom a) = AEAtom $ atomModifier a
-    atomExprModifer (AECall (AEAtom (AIdentifier n)) exprs)
-      | n == oldName =
-          AECall
-              (AEAtom (AIdentifier newName))
-              (map exprModifier exprs ++
-               [EAtom $ AEAtom $ AIdentifier accumulatorName])
-      | otherwise = AECall (AEAtom (AIdentifier n)) $ map exprModifier exprs
-    atomExprModifer (AECall ae exprs) =
-        AECall (atomExprModifer ae) $ map exprModifier exprs
-    atomExprModifer (AEAccess ae i) = AEAccess (atomExprModifer ae) i
-    atomModifier (AExpr e) = AExpr (exprModifier e)
-    atomModifier a@(AIdentifier n)
-      | n == oldName = AIdentifier newName
-      | otherwise = a
-    atomModifier c = c
+-- modifySmallStmt :: (Expr -> Expr) -> SmallStmt -> SmallStmt
+-- modifySmallStmt f (SSDecl (DeclStmt t v e))= SSDecl $ DeclStmt t v (f e)
+-- modifySmallStmt f (SSExpr (ExprStmt v e))= SSExpr $ ExprStmt v (f e)
+-- modifySmallStmt f (SSFlow (FSReturn (ReturnStmt me))) =
+--     SSFlow $ FSReturn $ ReturnStmt (f <$> me)
+-- modifySmallStmt _ s = s
 
 changeReturnConstant :: Suite -> Suite
 changeReturnConstant = modifySuite stmtModifier
@@ -227,6 +198,5 @@ toTailRecursive FuncDef{..}
         , taType = fRet
         }
     extraBody =
-        changeFuncNameAndArgs funcName extraName .
         changeReturnConstant . (changeReturnAlmostTail funcName) $
         funcBody
