@@ -21,6 +21,7 @@ module Test.Orchid.Data
        , newSource
        , new_classSource
        , fibSource
+       , factorialSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -117,3 +118,8 @@ fibSource
     :: IsString s
     => s
 fibSource = $(embedStringFile $ testPath "fib.orc")
+
+factorialSource
+    :: IsString s
+    => s
+factorialSource = $(embedStringFile $ testPath "factorial.orc")

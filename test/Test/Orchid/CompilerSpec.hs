@@ -41,6 +41,7 @@ spec =
                 expectNormalOutput "new.orc" newSource "" [1, 2]
                 expectNormalOutput "new_class.orc" new_classSource "" [10, 1, 2, 0]
                 expectNormalOutput "fib.orc" fibSource "" [8]
+                expectNormalOutput "factorial.orc" factorialSource "" [40320]
             it "Reports error for invalid code" $ do
                 expectError "type_error.orc" type_errorSource
                 expectError "private_var_outside.orc" private_var_outsideSource
