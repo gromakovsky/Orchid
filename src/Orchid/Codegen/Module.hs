@@ -18,8 +18,9 @@ module Orchid.Codegen.Module
        , declareFunction
        , addFuncDef
        , addGlobalVariable
-       , makeFuncPrivate
+       , declareClass
        , startClassDef
+       , makeFuncPrivate
        , finishClassDef
        ) where
 
@@ -235,23 +236,12 @@ addGlobalVariable varType varName varExpr = addToGlobal =<< toConstant varExpr
             }
         msVariables . at varName .= Just varData
 
--- | Make function in active class private.
-makeFuncPrivate :: Text -> LLVM ()
-makeFuncPrivate funcName =
-    maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
-  where
-    outsideClassMsg =
-        "internal error: attempt to make function private outside class"
-    impl clsName =
-        msPrivateFunctions %= S.insert (mangleClassMethodName clsName funcName)
-
-startClassDef :: Text
-              -> Maybe Text
-              -> [ClassVariable]
-              -> [(Text, Type)]
-              -> LLVM ()
-startClassDef className parent members virtualMethods = do
-    checkNestedClass
+declareClass :: Text
+             -> Maybe Text
+             -> [ClassVariable]
+             -> [(Text, Type)]
+             -> LLVM ()
+declareClass className parent members virtualMethods = do
     insertDummyClassData className parent
     parents <- tail <$> classAndParents (Just className)
     defineVTable className parents virtualMethods
@@ -266,7 +256,6 @@ startClassDef className parent members virtualMethods = do
     let allMembers = existingMembers ++ members
     addTypeDefinition allMembers
     addConstructor allMembers
-    msClass .= Just className
   where
     variablesLens = msClasses . at className . _Just . cdVariables
     vTableType' =
@@ -399,6 +388,21 @@ joinVirtualMethods parentMethods ourMethods =
                         "Virtual method type mismatch (found {}, expected {})"
                         (tFound, tExpected)
                 return $ (l & ix i .~ evm)
+
+startClassDef :: Text -> LLVM ()
+startClassDef className = do
+    checkNestedClass
+    msClass .= Just className
+
+-- | Make function in active class private.
+makeFuncPrivate :: Text -> LLVM ()
+makeFuncPrivate funcName =
+    maybe (throwCodegenError outsideClassMsg) impl =<< use msClass
+  where
+    outsideClassMsg =
+        "internal error: attempt to make function private outside class"
+    impl clsName =
+        msPrivateFunctions %= S.insert (mangleClassMethodName clsName funcName)
 
 finishClassDef :: LLVM ()
 finishClassDef = maybe reportError (const $ msClass .= Nothing) =<< use msClass

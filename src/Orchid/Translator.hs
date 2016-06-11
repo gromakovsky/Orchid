@@ -146,14 +146,40 @@ convertTypedArg OT.TypedArgument{..} =
 
 instance C.ToLLVM OT.Input where
     toLLVM (OT.Input stmts) = do
+        mapM_ declareClass stmts
         mapM_ declareFunction stmts
         mapM_ C.toLLVM stmts
       where
+        declareClass (OT.SCompound (OT.CSClass cd)) = declareClassDo cd
+        declareClass _ = return ()
         declareFunction (OT.SCompound (OT.CSFunc OT.FuncDef{..})) = do
             ret <- maybe (return C.TVoid) convertTypeIdentifier funcRet
             args <- mapM convertTypedArg funcArgs
             C.declareFunction ret funcName args
         declareFunction _ = return ()
+
+declareClassDo :: OT.ClassDef -> C.LLVM ()
+declareClassDo OT.ClassDef{..} =
+    join $ C.declareClass clsName clsParent <$> members <*> virtualMethods
+  where
+    members =
+        catMaybes <$> (mapM classStmtToMember . OT.getClassSuite $ clsBody)
+    classStmtToMember (OT.ClassStmt _ (Left _)) = pure Nothing
+    classStmtToMember (OT.ClassStmt access (Right OT.DeclStmt{..})) =
+        Just <$>
+        (C.mkClassVariable dsVar <$> convertTypeIdentifier dsType <*>
+         C.toConstant dsExpr <*>
+         pure (access == OT.AMPrivate))
+    virtualMethods =
+        catMaybes <$>
+        (mapM payloadToVirtualFunction . map OT.csPayload . OT.getClassSuite $
+         clsBody)
+    payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
+        Just . (funcName, ) <$>
+        do args <- mapM (fmap fst . convertTypedArg) funcArgs
+           ret <- maybe (pure C.TVoid) convertTypeIdentifier funcRet
+           return $ C.TFunction ret args
+    payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.Stmt where
     toLLVM (OT.SSimple s) = C.toLLVM s
@@ -202,29 +228,9 @@ instance C.ToLLVM OT.FuncDef where
 
 instance C.ToLLVM OT.ClassDef where
     toLLVM OT.ClassDef{..} = do
-        join $ C.startClassDef clsName clsParent <$> members <*> virtualMethods
+        C.startClassDef clsName
         C.toLLVM clsBody
         C.finishClassDef
-      where
-        members =
-            catMaybes <$> (mapM classStmtToMember . OT.getClassSuite $ clsBody)
-        classStmtToMember (OT.ClassStmt _ (Left _)) = pure Nothing
-        classStmtToMember (OT.ClassStmt access (Right OT.DeclStmt{..})) =
-            Just <$>
-            (C.mkClassVariable dsVar <$> convertTypeIdentifier dsType <*>
-             C.toConstant dsExpr <*>
-             pure (access == OT.AMPrivate))
-        virtualMethods =
-            catMaybes <$>
-            (mapM payloadToVirtualFunction .
-             map OT.csPayload . OT.getClassSuite $
-             clsBody)
-        payloadToVirtualFunction (Left (True,OT.FuncDef{..})) =
-            Just . (funcName, ) <$>
-            do args <- mapM (fmap fst . convertTypedArg) funcArgs
-               ret <- maybe (pure C.TVoid) convertTypeIdentifier funcRet
-               return $ C.TFunction ret args
-        payloadToVirtualFunction _ = pure Nothing
 
 instance C.ToLLVM OT.ClassSuite where
     toLLVM = mapM_ C.toLLVM . OT.getClassSuite
