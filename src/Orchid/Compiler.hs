@@ -4,7 +4,9 @@
 -- module.
 
 module Orchid.Compiler
-       ( CompilerOptions (..)
+       ( Optimization (..)
+       , Optimizations
+       , CompilerOptions (..)
        , CompilerExtra (..)
        , compileStr
        , compile
@@ -20,14 +22,16 @@ import           Orchid.Error      (CodegenException (..))
 import           Orchid.Lexer      (tokenizeInputFile)
 import           Orchid.Parser     (parseInput, parseInputFile)
 import           Orchid.Token      (Token)
-import           Orchid.Translator (translateToFile)
+import           Orchid.Translator (Optimization (..), Optimizations,
+                                    translateToFile)
 import           Orchid.Types      (Input)
 
 data CompilerOptions = CompilerOptions
-    { coInputFile    :: FilePath
-    , coOutputFile   :: FilePath
-    , coReturnTokens :: Bool
-    , coReturnTree   :: Bool
+    { coInputFile     :: !FilePath
+    , coOutputFile    :: !FilePath
+    , coReturnTokens  :: !Bool
+    , coReturnTree    :: !Bool
+    , coOptimizations :: !Optimizations
     } deriving (Show)
 
 data CompilerExtra = CompilerExtra
@@ -46,13 +50,13 @@ orchidPrelude =
     either (error "Fatal error: failed to parse prelude") id $
     parseInput "prelude" orchidPreludeStr
 
-compileStr :: Text -> FilePath -> IO ()
-compileStr inputText outFp =
-    either print (doTranslate outFp False) $ parseInput "<text>" inputText
+compileStr :: Optimizations -> Text -> FilePath -> IO ()
+compileStr optimizations inputText outFp =
+    either print (doTranslate outFp optimizations False) $ parseInput "<text>" inputText
 
-doTranslate :: FilePath -> Bool -> Input -> IO ()
-doTranslate outFp catchError input =
-    translateToFile outFp (mconcat [orchidPrelude, input]) `catch`
+doTranslate :: FilePath -> Optimizations -> Bool -> Input -> IO ()
+doTranslate outFp optimizations catchError input =
+    translateToFile outFp optimizations (mconcat [orchidPrelude, input]) `catch`
     handleCodegenException
   where
     handleCodegenException e@(CodegenException t)
@@ -62,7 +66,7 @@ doTranslate outFp catchError input =
 compile :: CompilerOptions -> IO CompilerExtra
 compile CompilerOptions{..} = do
     input <- parseInputFile coInputFile
-    doTranslate coOutputFile True input
+    doTranslate coOutputFile coOptimizations True input
     ceTokens <-
         if coReturnTokens
             then Just <$> tokenizeInputFile coInputFile

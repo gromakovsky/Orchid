@@ -16,7 +16,7 @@ import           Turtle                  (procStrict)
 
 import           Serokell.Util.Text      (listBuilder, show')
 
-import           Orchid.Compiler         (compileStr)
+import           Orchid.Compiler         (Optimization (..), compileStr)
 import           Orchid.Error            (CodegenException)
 
 import           Test.Orchid.Data
@@ -69,7 +69,7 @@ programOutput programName programSource programInput =
   where
     cb dir = do
         putStrLn programName
-        compileStr programSource $ dir </> "a.ll"
+        compileStr [TailRecursionOptimization] programSource $ dir </> "a.ll"
         () <$
             procStrict
                 "llvm-as"

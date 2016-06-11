@@ -9,6 +9,7 @@
 
 module Orchid.Codegen.Module
        ( ModuleState
+       , msOptimizeTailRecursion
        , LLVM
        , ToLLVM
        , toLLVM
@@ -71,12 +72,20 @@ $(makeLensesFor [("moduleDefinitions", "mDefinitions")] ''AST.Module)
 
 -- | ModuleState is a state of the whole module.
 data ModuleState = ModuleState
-    { _msFunctions        :: FunctionsMap
-    , _msPrivateFunctions :: S.Set Text
-    , _msClasses          :: ClassesMap
-    , _msVariables        :: VariablesMap
-    , _msClass            :: Maybe Text
-    , _msModule           :: AST.Module
+    { _msFunctions             :: !FunctionsMap  -- ^ Global functions
+                                                 -- defined within
+                                                 -- module
+    , _msPrivateFunctions      :: !(S.Set Text)  -- ^ Which functions are private
+    , _msClasses               :: !ClassesMap    -- ^ Classes defined
+                                                 -- within module
+    , _msVariables             :: !VariablesMap  -- ^ Global variables
+                                                 -- defined within
+                                                 -- module
+    , _msClass                 :: !(Maybe Text)  -- ^ Active class
+    , _msModule                :: !AST.Module    -- ^ LLVM Module
+    , _msOptimizeTailRecursion :: !Bool          -- ^ Whether tail
+                                                 -- recursion should
+                                                 -- be optimized
     } deriving (Show)
 
 $(makeLenses ''ModuleState)
@@ -103,12 +112,13 @@ execLLVM m = f . flip runState m . runExceptT . getLLVM
 -- functions and variables.
 mkModuleState
     :: Text
+    -> Bool
     -> AST.Module
     -> FunctionsMap
     -> ClassesMap
     -> VariablesMap
     -> ModuleState
-mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVariables =
+mkModuleState moduleName optimizeTailRecursion preludeModule preludeFunctions preludeClasses preludeVariables =
     ModuleState
     { _msFunctions = preludeFunctions
     , _msPrivateFunctions = S.empty
@@ -118,6 +128,7 @@ mkModuleState moduleName preludeModule preludeFunctions preludeClasses preludeVa
     , _msModule = preludeModule
       { AST.moduleName = convertString moduleName
       }
+    , _msOptimizeTailRecursion = optimizeTailRecursion
     }
 
 addDefn :: AST.Definition -> LLVM ()

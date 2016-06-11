@@ -8,7 +8,11 @@
 -- | Translator transforms AST into LLVM representation.
 
 module Orchid.Translator
-       ( translate
+       ( ModuleName
+       , Optimization (..)
+       , Optimizations
+       , translatePure
+       , translate
        , translateToFile
        ) where
 
@@ -33,21 +37,30 @@ import           Orchid.Error            (CodegenException,
                                           LowLevelException (LowLevelException))
 import qualified Orchid.Types            as OT
 
-type ModuleName = Text
-
 --------------------------------------------------------------------------------
 -- Exported
 --------------------------------------------------------------------------------
 
+type ModuleName = Text
+
+data Optimization =
+    TailRecursionOptimization
+    deriving (Show, Eq)
+
+type Optimizations = [Optimization]
+
 translatePure :: ModuleName
+              -> Optimizations
               -> AST.Module
               -> OT.Input
               -> Either CodegenException AST.Module
-translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
+translatePure mName optimizations preludeModule inp =
+    C.execLLVM initialState $ C.toLLVM inp
   where
     initialState =
         C.mkModuleState
             mName
+            (TailRecursionOptimization `elem` optimizations)
             preludeModule
             preludeFunctions
             preludeClasses
@@ -62,8 +75,12 @@ translatePure mName preludeModule inp = C.execLLVM initialState $ C.toLLVM inp
     preludeClasses = M.empty
     preludeVariables = M.empty
 
-translate :: ModuleName -> OT.Input -> (G.Module -> IO a) -> IO a
-translate mName inp continuation =
+translate :: ModuleName
+          -> Optimizations
+          -> OT.Input
+          -> (G.Module -> IO a)
+          -> IO a
+translate mName optimizations inp continuation =
     withContext $
     \context ->
          handleFatalError $
@@ -75,14 +92,16 @@ translate mName inp continuation =
                  either throwIO (translateFinish context) $
                      mFinalEither preludeModulePure
   where
-    mFinalEither preludeModule = translatePure mName preludeModule inp
+    mFinalEither preludeModule =
+        translatePure mName optimizations preludeModule inp
     translateFinish context m =
         handleError $ G.withModuleFromAST context m continuation
 
-translateToFile :: FilePath -> OT.Input -> IO ()
-translateToFile fp input =
+translateToFile :: FilePath -> Optimizations -> OT.Input -> IO ()
+translateToFile fp optimizations input =
     translate
         (convertString fp)
+        optimizations
         input
         (handleError . G.writeLLVMAssemblyToFile (G.File fp))
 
