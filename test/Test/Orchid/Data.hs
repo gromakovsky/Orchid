@@ -23,6 +23,7 @@ module Test.Orchid.Data
        , fibSource
        , factorialSource
        , mutually_recursiveSource
+       , factorial_hugeSource
        ) where
 
 import           Data.FileEmbed   (embedStringFile)
@@ -129,3 +130,8 @@ mutually_recursiveSource
     :: IsString s
     => s
 mutually_recursiveSource = $(embedStringFile $ testPath "mutually_recursive.orc")
+
+factorial_hugeSource
+    :: IsString s
+    => s
+factorial_hugeSource = $(embedStringFile $ testPath "factorial_huge.orc")

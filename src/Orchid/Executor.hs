@@ -6,16 +6,17 @@ module Orchid.Executor
        , Optimizations
        ) where
 
+import           Data.Bifunctor          (first)
 import           Data.String.Conversions (convertString)
 import           Data.Text               (Text)
 import           System.FilePath         ((</>))
 import           System.IO.Temp          (withSystemTempDirectory)
-import           Turtle                  (procStrict)
+import           Turtle                  (ExitCode (..), procStrict)
 
 import           Orchid.Compiler         (Optimization (..), Optimizations,
                                           compileStr)
 
-executeProgram :: Optimizations -> Text -> Text -> IO Text
+executeProgram :: Optimizations -> Text -> Text -> IO (Bool, Text)
 executeProgram optimizations programSource programInput =
     withSystemTempDirectory "patak" cb
   where
@@ -28,6 +29,8 @@ executeProgram optimizations programSource programInput =
                 , convertString $ dir </> "a.bc"
                 , convertString $ dir </> "a.ll"]
                 mempty
-        snd <$>
+        first convertExitCode <$>
             (procStrict "lli" [convertString $ dir </> "a.ll"] $
              pure programInput)
+    convertExitCode ExitSuccess = True
+    convertExitCode _ = False

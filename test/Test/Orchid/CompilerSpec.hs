@@ -46,6 +46,8 @@ spec =
             genSpecCodegenError "type_error.orc" type_errorSource
             genSpecCodegenError "private_var_outside.orc" private_var_outsideSource
             genSpecCodegenError "private_method_outside.orc" private_method_outsideSource
+        context "Is capable of doing tail recursion elimination" $ do
+            tailRecursionSpec
 
 genSpec :: String -> Text -> Text -> Text -> Spec
 genSpec prName prSource prInput prOutput =
@@ -70,10 +72,24 @@ genSpecCodegenError prName prSource =
 
 expectOutput :: Text -> Text -> Text -> IO ()
 expectOutput prSource prInput prOutput =
-    (`shouldBe` prOutput) =<< executeProgram optimizeTailRec prSource prInput
+    (`shouldBe` prOutput) =<<
+    snd <$> executeProgram optimizeTailRec prSource prInput
+
+expectRuntimeFailure :: Optimizations -> Text -> Text -> IO ()
+expectRuntimeFailure optimizations prSource prInput =
+    (`shouldBe` False) =<<
+    fst <$> executeProgram optimizations prSource prInput
 
 expectCodegenError :: Text -> IO ()
 expectCodegenError prSource =
     executeProgram optimizeTailRec prSource undefined `shouldThrow`
     (\(_ :: CodegenException) ->
           True)
+
+tailRecursionSpec :: Spec
+tailRecursionSpec = do
+  context "factorial_huge.orc" $ do
+      it "runs successfully with optimization" $ do
+          expectOutput factorial_hugeSource "" "0\n"
+      it "fails without optimization" $ do
+          expectRuntimeFailure [] factorial_hugeSource ""
