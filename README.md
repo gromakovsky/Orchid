@@ -303,6 +303,12 @@ Also there is a simple benchmark which compares execution time of
 multiple factorial executions compiled with optimizations and
 without. You can run it using `stack bench Orchid`.
 
+## Optimizations
+
+By default compiler performs tail recursion elimination with
+acuumulator extraction. It can be disabled by passing `--not-optimize`
+flag.
+
 ## Known bugs
 
 - return is required even if function returns void
