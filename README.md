@@ -299,6 +299,10 @@ exec orchid -- --help` to get a full list of options.
 
 If you want to run tests use `stack test Orchid` command.
 
+Also there is a simple benchmark which compares execution time of
+multiple factorial executions compiled with optimizations and
+without. You can run it using `stack bench Orchid`.
+
 ## Known bugs
 
 - return is required even if function returns void
