@@ -16,7 +16,7 @@ tail_recSource =
 run :: [Optimization] -> IO ()
 run opts =
     TIO.putStrLn . show' =<<
-    measureTime_ (executeProgram opts "tail_rec.orc" tail_recSource mempty)
+    measureTime_ (executeProgram opts tail_recSource mempty)
 
 main :: IO ()
 main = do

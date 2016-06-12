@@ -15,12 +15,11 @@ import           Turtle                  (procStrict)
 import           Orchid.Compiler         (Optimization (..), Optimizations,
                                           compileStr)
 
-executeProgram :: Optimizations -> String -> Text -> Text -> IO Text
-executeProgram optimizations programName programSource programInput =
+executeProgram :: Optimizations -> Text -> Text -> IO Text
+executeProgram optimizations programSource programInput =
     withSystemTempDirectory "patak" cb
   where
     cb dir = do
-        putStrLn programName
         compileStr optimizations programSource $ dir </> "a.ll"
         () <$
             procStrict
