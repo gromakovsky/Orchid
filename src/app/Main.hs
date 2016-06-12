@@ -15,7 +15,9 @@ main = do
             , coOutputFile = optOutputFile
             , coReturnTokens = optDumpTokens
             , coReturnTree = optDumpAST
-            , coOptimizations = [TailRecursionOptimization]
+            , coOptimizations = if optNotOptimize
+                  then []
+                  else [TailRecursionOptimization]
             }
     CompilerExtra{..} <- compile co
     when (optDumpTokens) $ putStrLn "Tokens:" >> (print . fromJust $ ceTokens)

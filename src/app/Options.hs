@@ -10,10 +10,11 @@ module Options
 import qualified Options.Applicative as Opts
 
 data Options = Options
-    { optInputFile  :: FilePath
-    , optOutputFile :: FilePath
-    , optDumpAST    :: Bool
-    , optDumpTokens :: Bool
+    { optInputFile   :: FilePath
+    , optOutputFile  :: FilePath
+    , optDumpAST     :: Bool
+    , optDumpTokens  :: Bool
+    , optNotOptimize :: Bool
     } deriving (Show)
 
 parser :: Opts.Parser Options
@@ -30,7 +31,8 @@ parser =
              , Opts.value "a.ll"
              , Opts.showDefault]) <*>
     Opts.switch (mconcat [Opts.short 'a', Opts.long "ast"]) <*>
-    Opts.switch (mconcat [Opts.short 't', Opts.long "tokens"])
+    Opts.switch (mconcat [Opts.short 't', Opts.long "tokens"]) <*>
+    Opts.switch (mconcat [Opts.long "not-optimize"])
 
 getOptions :: IO Options
 getOptions =
