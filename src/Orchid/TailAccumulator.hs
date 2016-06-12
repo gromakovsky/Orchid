@@ -1,5 +1,3 @@
-{-# LANGUAGE TupleSections #-}
-
 -- | Convert recursive call into tail recursive one using accumulator
 -- argument in some cases.
 

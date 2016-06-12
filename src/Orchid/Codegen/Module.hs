@@ -155,6 +155,9 @@ addFuncDef retType funcName args suite = do
     globalCase = addFuncDefDo retType funcName args bodyGlobal
     bodyGlobal = do
         mapM_ storeArgument args
+        () <$ B.addEmptyBlock B.tailRecBlockName
+        () <$ B.br B.tailRecBlockName
+        B.setBlock B.tailRecBlockName
         B.toBody suite
     storeArgument (argType,argName) = do
         addr <- B.alloca argType
@@ -188,7 +191,8 @@ addFuncDefDo retType funcName args suite = do
     classes <- use msClasses
     vars <- use msVariables
     activeClass <- use msClass
-    case bodyEither funcs privFuncs classes vars activeClass of
+    optimizeTailRec <- use msOptimizeTailRecursion
+    case bodyEither funcs privFuncs classes vars activeClass optimizeTailRec of
         Left e -> throwError e
         Right body -> do
             addDefn $ AST.GlobalDefinition $
@@ -205,11 +209,20 @@ addFuncDefDo retType funcName args suite = do
         { fdRetType = retType
         , fdArgTypes = map fst args
         }
-    bodyEither funcs privFuncs classes vars activeClass =
-        execBodyGen funcs privFuncs classes vars activeClass (toBody suite) >>=
+    bodyEither funcs privFuncs classes vars activeClass optimizeTailRec =
+        execBodyGen
+            funcs
+            privFuncs
+            classes
+            vars
+            funcName
+            activeClass
+            optimizeTailRec
+            (toBody suite) >>=
         createBlocks
     parameters =
-        ( [G.Parameter (orchidTypeToLLVM t) (convertString n) [] | (t,n) <- args]
+        ( [G.Parameter (orchidTypeToLLVM t) (convertString n) [] | (t,n) <-
+                                                                      args]
         , False)
 
 -- | This function adds global variable with given type

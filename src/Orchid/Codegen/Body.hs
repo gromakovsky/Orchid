@@ -13,8 +13,12 @@ module Orchid.Codegen.Body
          BodyGen
        , ToBody (toBody)
        , ToBodyPtr (toBodyPtr)
+       , getFunctionName
+       , getOptimizeTailRecursion
+       , getActiveClass
 
          -- Block stack
+       , tailRecBlockName
        , addEmptyBlock
        , setBlock
        , removeBlock
@@ -65,6 +69,7 @@ module Orchid.Codegen.Body
        , br
        , cbr
        , ret
+       , retTailRecursion
        ) where
 
 import           Control.Applicative                (empty, (<|>))
@@ -95,7 +100,8 @@ import           Prelude                            hiding (and, div, mod, not,
                                                      or)
 import qualified Prelude
 
-import           Serokell.Util                      (format', formatSingle',
+import           Serokell.Util                      (enumerate, format',
+                                                     formatSingle',
                                                      listBuilderJSON)
 
 import           Orchid.Codegen.Common              (ClassData, ClassesMap, FunctionData (FunctionData),
@@ -157,31 +163,37 @@ type BlocksMap = M.Map AST.Name BlockState
 data BodyState = BodyState
     {
       -- | Name of the active block to append to.
-      _bsCurrentBlock     :: AST.Name
+      _bsCurrentBlock          :: AST.Name
+    ,
+      -- | Name of the active function.
+      _bsFunctionName          :: Text
     ,
       -- | Blocks within a function body.
-      _bsBlocks           :: BlocksMap
+      _bsBlocks                :: BlocksMap
     ,
       -- | Global functions.
-      _bsFunctions        :: FunctionsMap
+      _bsFunctions             :: FunctionsMap
     ,
       -- | Private functions.
-      _bsPrivateFunctions :: S.Set Text
+      _bsPrivateFunctions      :: S.Set Text
     ,
       -- | Global classes.
-      _bsClasses          :: ClassesMap
+      _bsClasses               :: ClassesMap
     ,
       -- | Map from global/local variable name to it's address.
-      _bsVariables        :: VariablesMap
+      _bsVariables             :: VariablesMap
     ,
       -- | Count of unnamed identifiers.
-      _bsCount            :: Word
+      _bsCount                 :: Word
     ,
       -- | This map is used to generated unique names for blocks.
-      _bsNames            :: Names
+      _bsNames                 :: Names
     ,
       -- | Name of class inside which this function is located
-      _bsActiveClass      :: Maybe Text
+      _bsActiveClass           :: Maybe Text
+    ,
+      -- | Whether tail recursion should be optimized
+      _bsOptimizeTailRecursion :: !Bool
     } deriving (Show)
 
 $(makeLenses ''BodyState)
@@ -210,9 +222,24 @@ instance ToBody (BodyGen a) a where
 class ToBodyPtr a where
     toBodyPtr :: a -> BodyGen TypedOperand
 
+getFunctionName :: BodyGen Text
+getFunctionName = use bsFunctionName
+
+getOptimizeTailRecursion :: BodyGen Bool
+getOptimizeTailRecursion = use bsOptimizeTailRecursion
+
+getActiveClass :: BodyGen (Maybe Text)
+getActiveClass = use bsActiveClass
+
 -------------------------------------------------------------------------------
 -- BodyGen blocks
 -------------------------------------------------------------------------------
+
+entryBlockName :: IsString s => s
+entryBlockName = "entry"
+
+tailRecBlockName :: IsString s => s
+tailRecBlockName = "tailRec"
 
 addEmptyBlock :: Text -> BodyGen AST.Name
 addEmptyBlock blockName = do
@@ -266,9 +293,6 @@ makeBlock (l,(BlockState _ s t)) = G.BasicBlock l s <$> makeTerm t
         throwCodegenError $
         formatSingle' "block \"{}\" doesn't have terminator" l
 
-entryBlockName :: IsString s => s
-entryBlockName = "entry"
-
 emptyBlock :: Word -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
@@ -277,12 +301,15 @@ mkBodyState
     -> S.Set Text
     -> ClassesMap
     -> VariablesMap
+    -> Text
     -> Maybe Text
+    -> Bool
     -> BodyState
-mkBodyState functions privateFunctions classes variables activeClass =
+mkBodyState functions privateFunctions classes variables activeFunction activeClass optimizeTailRec =
     execState (runExceptT . getBodyGen $ addEmptyBlock entryBlockName) $
     BodyState
     { _bsCurrentBlock = entryBlockName
+    , _bsFunctionName = activeFunction
     , _bsBlocks = M.empty
     , _bsFunctions = functions
     , _bsPrivateFunctions = privateFunctions
@@ -291,6 +318,7 @@ mkBodyState functions privateFunctions classes variables activeClass =
     , _bsCount = 0
     , _bsNames = M.empty
     , _bsActiveClass = activeClass
+    , _bsOptimizeTailRecursion = optimizeTailRec
     }
 
 -- | Execute BodyGen to produce final BodyState.
@@ -299,14 +327,23 @@ execBodyGen
     -> S.Set Text
     -> ClassesMap
     -> VariablesMap
+    -> Text
     -> Maybe Text
+    -> Bool
     -> BodyGen a
     -> Either CodegenException BodyState
-execBodyGen functions privateFunctions classes variables activeClass =
+execBodyGen functions privateFunctions classes variables activeFunction activeClass optimizeTailRec =
     f . flip runState initial . runExceptT . getBodyGen
   where
     initial =
-        mkBodyState functions privateFunctions classes variables activeClass
+        mkBodyState
+            functions
+            privateFunctions
+            classes
+            variables
+            activeFunction
+            activeClass
+            optimizeTailRec
     f (Left e,_) = Left e
     f (_,s') = Right s'
 
@@ -560,7 +597,7 @@ call (fnType,fnOperand) args =
     maybe
         (throwCodegenError $
          formatSingle'
-             "attempt to call something that is not a function (type is {}"
+             "attempt to call something that is not a function (type is {})"
              fnType)
         callDo $
     typeToFunctionData fnType
@@ -692,3 +729,17 @@ cbr c@(_,cond) tr fl =
 
 ret :: Maybe AST.Operand -> BodyGen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
+
+retTailRecursion :: [BodyGen TypedOperand] -> BodyGen ()
+retTailRecursion args = do
+    mapM_ storeBeforeBr $ enumerate args
+    () <$ br tailRecBlockName
+  where
+    storeBeforeBr (i,argGen) = do
+        arg <- argGen
+        let ptrType = TPointer $ fst arg
+        store
+            ( ptrType
+            , AST.LocalReference (orchidTypeToLLVM ptrType) $
+              AST.UnName (2 * i + 1))
+            arg

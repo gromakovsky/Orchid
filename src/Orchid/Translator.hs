@@ -18,7 +18,7 @@ module Orchid.Translator
 
 import           Control.Exception       (throwIO)
 import           Control.Lens            (use)
-import           Control.Monad           (join, unless, when, (<=<))
+import           Control.Monad           (join, unless, void, when, (<=<))
 import           Control.Monad.Except    (ExceptT, MonadError, runExceptT)
 import           Control.Monad.State     (MonadState)
 import           Data.FileEmbed          (embedStringFile)
@@ -280,9 +280,26 @@ instance C.ToBody OT.ExprStmt () where
 instance C.ToBody OT.FlowStmt () where
     toBody (OT.FSReturn rs) = C.toBody rs
 
+atomExprName :: OT.AtomExpr -> Maybe OT.Identifier
+atomExprName (OT.AEAtom (OT.AIdentifier n)) = Just n
+atomExprName _ = Nothing
+
+isFunctionCall :: OT.Expr -> Maybe (OT.Identifier, [OT.Expr])
+isFunctionCall (OT.EAtom (OT.AECall f exprs)) = (, exprs) <$> atomExprName f
+isFunctionCall _ = Nothing
+
 instance C.ToBody OT.ReturnStmt () where
-    toBody (OT.ReturnStmt me) =
-        () <$ maybe (C.ret Nothing) (C.ret . Just . snd <=< C.toBody) me
+    toBody (OT.ReturnStmt Nothing) = () <$ C.ret Nothing
+    toBody (OT.ReturnStmt (Just e)) = do
+        optimizeTailRecursion <- C.getOptimizeTailRecursion
+        fName <- C.getFunctionName
+        let isTailRecursion = maybe False ((fName ==) . fst) $ isFunctionCall e
+            Just (_,args) = isFunctionCall e
+        if optimizeTailRecursion && isTailRecursion
+            then C.retTailRecursion $ map C.toBody args
+            else toBodyDefault e
+      where
+        toBodyDefault = void . C.ret . Just . snd <=< C.toBody
 
 instance C.ToBody OT.NewStmt () where
     toBody (OT.NewStmt ti v) = do
