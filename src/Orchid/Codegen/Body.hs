@@ -731,12 +731,12 @@ ret :: Maybe AST.Operand -> BodyGen (AST.Named AST.Terminator)
 ret = terminator . AST.Do . flip AST.Ret []
 
 retTailRecursion :: [BodyGen TypedOperand] -> BodyGen ()
-retTailRecursion args = do
+retTailRecursion argGens = do
+    args <- sequence argGens
     mapM_ storeBeforeBr $ enumerate args
     () <$ br tailRecBlockName
   where
-    storeBeforeBr (i,argGen) = do
-        arg <- argGen
+    storeBeforeBr (i,arg) = do
         let ptrType = TPointer $ fst arg
         store
             ( ptrType
